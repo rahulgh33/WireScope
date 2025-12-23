@@ -120,7 +120,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Add dlq_messages_total counter
   - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 15. Milestone B Demo - Reliability validation
+- [x] 15. Milestone B Demo - Reliability validation
   - Test duplicate event handling with unchanged aggregates
   - Demonstrate aggregator restart with safe continuation
   - Show backpressure activation and recovery
