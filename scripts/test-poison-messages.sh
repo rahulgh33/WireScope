@@ -29,9 +29,22 @@ sleep 5
 
 echo "Publishing poison message directly to NATS..."
 
-# Use nats CLI to publish invalid JSON
-docker exec distributed-telemetry-platform-nats-1 \
-  nats pub telemetry.events '{"invalid": "json", missing required fields}'
+# Use Go program to publish invalid JSON since nats CLI isn't available in container
+go run -c '
+package main
+import (
+  "log"
+  "github.com/nats-io/nats.go"
+)
+func main() {
+  nc, err := nats.Connect("nats://localhost:4222")
+  if err != nil { log.Fatal(err) }
+  defer nc.Close()
+  err = nc.Publish("telemetry.events", []byte("{\"invalid\": \"json\"}"))
+  if err != nil { log.Fatal(err) }
+  log.Println("Published poison message")
+}
+' /tmp/poison.go && go run /tmp/poison.go
 
 sleep 10
 

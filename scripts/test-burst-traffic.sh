@@ -23,7 +23,8 @@ AGGREGATOR_PID=$!
 go run cmd/ingest/main.go \
   -port 8080 -nats-url nats://localhost:4222 \
   -api-tokens "test-token-123" \
-  -rate-limit 10 -rate-limit-burst 5 &
+  -rate-limit 10 -rate-limit-burst 5 \
+  -tracing-enabled=false > /tmp/ingest.log 2>&1 &
 INGEST_PID=$!
 
 cleanup() {
