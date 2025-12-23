@@ -2,11 +2,39 @@ package models
 
 import (
 	"sort"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	percentileComputeDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "percentile_computation_duration_seconds",
+			Help: "Time taken to compute percentiles",
+			Buckets: []float64{
+				0.0001, // 0.1ms
+				0.0005, // 0.5ms
+				0.001,  // 1ms
+				0.005,  // 5ms
+				0.010,  // 10ms
+				0.050,  // 50ms
+				0.100,  // 100ms
+			},
+		},
+	)
 )
 
 // CalculatePercentiles computes both P50 and P95 percentiles from a slice of float64 values.
 // Returns (p50, p95) values.
 func CalculatePercentiles(data []float64) (float64, float64) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start).Seconds()
+		percentileComputeDuration.Observe(duration)
+	}()
+
 	if len(data) == 0 {
 		return 0, 0
 	}

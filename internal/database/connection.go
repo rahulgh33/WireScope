@@ -8,6 +8,42 @@ import (
 
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	dbConnectionsActive = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_connections_active",
+			Help: "Number of active database connections",
+		},
+	)
+
+	dbConnectionsIdle = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "db_connections_idle",
+			Help: "Number of idle database connections",
+		},
+	)
+
+	dbQueryDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "db_query_duration_seconds",
+			Help: "Database query execution time",
+			Buckets: []float64{
+				0.001, // 1ms
+				0.005, // 5ms
+				0.010, // 10ms
+				0.050, // 50ms
+				0.100, // 100ms
+				0.500, // 500ms
+				1.0,   // 1s
+				5.0,   // 5s
+			},
+		},
+		[]string{"operation"},
+	)
 )
 
 // ConnectionConfig holds database connection pool configuration
@@ -33,9 +69,9 @@ func DefaultConnectionConfig() *ConnectionConfig {
 		Password:        "telemetry",
 		Database:        "telemetry",
 		SSLMode:         "disable",
-		MaxOpenConns:    25,  // Maximum number of open connections
-		MaxIdleConns:    5,   // Maximum number of idle connections
-		ConnMaxLifetime: time.Hour,   // Maximum lifetime of a connection
+		MaxOpenConns:    25,              // Maximum number of open connections
+		MaxIdleConns:    5,               // Maximum number of idle connections
+		ConnMaxLifetime: time.Hour,       // Maximum lifetime of a connection
 		ConnMaxIdleTime: time.Minute * 5, // Maximum idle time before closing
 	}
 }
@@ -82,7 +118,22 @@ func NewConnection(config *ConnectionConfig) (*Connection, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Start background goroutine to update connection pool metrics
+	go conn.updateMetrics()
+
 	return conn, nil
+}
+
+// updateMetrics periodically updates database connection pool metrics
+func (c *Connection) updateMetrics() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		stats := c.db.Stats()
+		dbConnectionsActive.Set(float64(stats.InUse))
+		dbConnectionsIdle.Set(float64(stats.Idle))
+	}
 }
 
 // DB returns the underlying sql.DB instance

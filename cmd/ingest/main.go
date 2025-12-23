@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/network-qoe-telemetry-platform/internal/metrics"
 	"github.com/network-qoe-telemetry-platform/internal/models"
 	"github.com/network-qoe-telemetry-platform/internal/queue"
 )
@@ -27,7 +28,7 @@ var (
 )
 
 // Prometheus metrics
-// Requirement: 6.1 - Ingest request rate and error rate metrics
+// Requirements: 6.1, 6.2, 6.3 - Comprehensive ingest API metrics
 var (
 	ingestRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -45,11 +46,56 @@ var (
 		},
 		[]string{"status"},
 	)
+
+	ingestPayloadSize = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingest_payload_size_bytes",
+			Help:    "Size of ingest request payloads in bytes",
+			Buckets: []float64{100, 500, 1000, 5000, 10000, 50000},
+		},
+		[]string{"status"},
+	)
+
+	ingestAuthFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_auth_failures_total",
+			Help: "Total number of authentication failures",
+		},
+		[]string{"reason"}, // missing_token, invalid_token
+	)
+
+	ingestRateLimitHits = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_rate_limit_hits_total",
+			Help: "Total number of rate limit hits per client",
+		},
+		[]string{"client_id_hash"}, // hashed for cardinality management
+	)
+
+	ingestActiveConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ingest_active_connections",
+			Help: "Number of currently active HTTP connections",
+		},
+	)
+
+	ingestEventsPerClient = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_events_per_client_total",
+			Help: "Total events ingested per client (hashed)",
+		},
+		[]string{"client_id_hash"},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(ingestRequestsTotal)
 	prometheus.MustRegister(ingestRequestDuration)
+	prometheus.MustRegister(ingestPayloadSize)
+	prometheus.MustRegister(ingestAuthFailures)
+	prometheus.MustRegister(ingestRateLimitHits)
+	prometheus.MustRegister(ingestActiveConnections)
+	prometheus.MustRegister(ingestEventsPerClient)
 }
 
 // TokenBucket implements a simple token bucket rate limiter
@@ -151,10 +197,14 @@ func (api *IngestAPI) getRateLimiter(clientID string) *TokenBucket {
 // Requirement: 10.1 - HTTP server with basic authentication middleware
 func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ingestActiveConnections.Inc()
+		defer ingestActiveConnections.Dec()
+
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
+			ingestAuthFailures.WithLabelValues("missing_token").Inc()
 			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 			return
 		}
@@ -163,6 +213,7 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
+			ingestAuthFailures.WithLabelValues("invalid_format").Inc()
 			http.Error(w, "Invalid Authorization header format. Expected: Bearer <token>", http.StatusUnauthorized)
 			return
 		}
@@ -172,6 +223,7 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Validate token
 		if len(api.validTokens) > 0 && !api.validTokens[token] {
 			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
+			ingestAuthFailures.WithLabelValues("invalid_token").Inc()
 			http.Error(w, "Invalid API token", http.StatusUnauthorized)
 			return
 		}
@@ -187,10 +239,14 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	status := "success"
+	var payloadSize int64
+	var clientIDHash string
+
 	defer func() {
 		duration := time.Since(start).Seconds()
 		ingestRequestsTotal.WithLabelValues(status).Inc()
 		ingestRequestDuration.WithLabelValues(status).Observe(duration)
+		ingestPayloadSize.WithLabelValues(status).Observe(float64(payloadSize))
 	}()
 
 	if r.Method != http.MethodPost {
@@ -198,6 +254,9 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// Track payload size
+	payloadSize = r.ContentLength
 
 	// Parse JSON request body
 	var event models.TelemetryEvent
@@ -210,6 +269,9 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
+
+	// Hash client_id for cardinality management
+	clientIDHash = metrics.HashClientID(event.ClientID)
 
 	// Inject recv_ts_ms timestamp for clock skew debugging
 	// Requirement: 10.4 - recv_ts_ms timestamp injection
@@ -248,6 +310,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	limiter := api.getRateLimiter(event.ClientID)
 	if !limiter.Allow() {
 		status = "rate_limited"
+		ingestRateLimitHits.WithLabelValues(clientIDHash).Inc()
 		log.Printf("Rate limit exceeded for client %s", event.ClientID)
 		http.Error(w, "Rate limit exceeded. Please slow down your requests.", http.StatusTooManyRequests)
 		return
@@ -261,6 +324,9 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Failed to publish event", http.StatusInternalServerError)
 		return
 	}
+
+	// Track successful events per client
+	ingestEventsPerClient.WithLabelValues(clientIDHash).Inc()
 
 	log.Printf("Successfully ingested event %s from client %s", event.EventID, event.ClientID)
 

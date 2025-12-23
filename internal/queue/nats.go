@@ -11,6 +11,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/network-qoe-telemetry-platform/internal/models"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const (
@@ -30,6 +32,27 @@ const (
 	DefaultAckWait         = 30 * time.Second
 	DefaultMaxAckPending   = 1000
 	DefaultStreamRetention = 7 * 24 * time.Hour
+)
+
+var (
+	// Queue processing duration metric
+	queueProcessingDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "queue_processing_duration_seconds",
+			Help: "Time spent processing queue messages",
+			Buckets: []float64{
+				0.001, // 1ms
+				0.005, // 5ms
+				0.010, // 10ms
+				0.050, // 50ms
+				0.100, // 100ms
+				0.500, // 500ms
+				1.0,   // 1s
+				5.0,   // 5s
+			},
+		},
+		[]string{"status"},
+	)
 )
 
 // NATSConfig holds configuration for NATS JetStream connection
@@ -259,8 +282,17 @@ func (p *NATSEventProcessor) ConsumeEvents(handler func(*models.TelemetryEvent) 
 		p.messages[event.EventID] = msg
 		p.msgMu.Unlock()
 
+		// Track processing duration
+		start := time.Now()
+		status := "success"
+		defer func() {
+			duration := time.Since(start).Seconds()
+			queueProcessingDuration.WithLabelValues(status).Observe(duration)
+		}()
+
 		// Process the event with the handler
 		if err := handler(&event); err != nil {
+			status = "error"
 			log.Printf("Failed to process event %s: %v", event.EventID, err)
 
 			// Check if this is the last delivery attempt

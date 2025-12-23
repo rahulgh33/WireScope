@@ -68,6 +68,40 @@ var (
 			Help: "Total number of late events detected",
 		},
 	)
+
+	windowFlushDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "window_flush_duration_seconds",
+			Help: "Time taken to flush aggregation windows to database",
+			Buckets: []float64{
+				0.001, // 1ms
+				0.005, // 5ms
+				0.010, // 10ms
+				0.050, // 50ms
+				0.100, // 100ms
+				0.500, // 500ms
+				1.0,   // 1s
+				5.0,   // 5s
+			},
+		},
+		[]string{"status"},
+	)
+
+	percentileComputeDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "percentile_computation_duration_seconds",
+			Help: "Time taken to compute percentiles",
+			Buckets: []float64{
+				0.0001, // 0.1ms
+				0.0005, // 0.5ms
+				0.001,  // 1ms
+				0.005,  // 5ms
+				0.010,  // 10ms
+				0.050,  // 50ms
+				0.100,  // 100ms
+			},
+		},
+	)
 )
 
 func init() {
@@ -75,6 +109,8 @@ func init() {
 	prometheus.MustRegister(processingDelaySeconds)
 	prometheus.MustRegister(dedupRate)
 	prometheus.MustRegister(lateEventsTotal)
+	prometheus.MustRegister(windowFlushDuration)
+	prometheus.MustRegister(percentileComputeDuration)
 }
 
 // Aggregator consumes events from NATS and produces windowed aggregates
@@ -281,6 +317,13 @@ func (a *Aggregator) flushClosedWindows() {
 }
 
 func (a *Aggregator) flushWindow(windowStartMs int64) {
+	start := time.Now()
+	status := "success"
+	defer func() {
+		duration := time.Since(start).Seconds()
+		windowFlushDuration.WithLabelValues(status).Observe(duration)
+	}()
+
 	a.mu.Lock()
 
 	var aggregatorsToFlush []*models.InMemoryAggregator
@@ -321,6 +364,7 @@ func (a *Aggregator) flushWindow(windowStartMs int64) {
 		}
 
 		if err := a.aggregatesRepo.UpsertAggregate(ctx, dbAgg); err != nil {
+			status = "error"
 			log.Printf("Failed to upsert aggregate for client %s, target %s, window %s: %v",
 				windowedAgg.ClientID, windowedAgg.Target, windowedAgg.WindowStartTs.Format(time.RFC3339), err)
 			continue
