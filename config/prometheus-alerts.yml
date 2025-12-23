@@ -1,0 +1,56 @@
+groups:
+  - name: telemetry-alerts
+    rules:
+      - alert: HighQueueLag
+        expr: queue_lag_messages > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High queue lag (>1000 for 5m)
+          description: Queue backlog is high, investigate consumer health.
+
+      - alert: DLQSpike
+        expr: rate(dlq_messages_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: DLQ messages rate > 1/s
+          description: Poison messages detected; check aggregator errors and schema mismatches.
+
+      - alert: NATSReconnects
+        expr: increase(nats_reconnects_total[10m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: Frequent NATS reconnects
+          description: Network instability or broker issues suspected.
+
+      - alert: IngestAuthFailures
+        expr: sum(rate(ingest_auth_failures_total[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: Elevated ingest auth failures
+          description: Clients failing authentication; verify tokens.
+
+      - alert: RateLimitExceeded
+        expr: sum(rate(ingest_rate_limit_hits_total[5m])) > 5
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: Clients hit rate limits frequently
+          description: Consider adjusting limits or client behavior.
+
+      - alert: ProcessingDelayHighP95
+        expr: histogram_quantile(0.95, sum by (le) (rate(processing_delay_seconds_bucket[5m]))) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: High end-to-end processing delay p95 (>10s)
+          description: Investigate aggregator performance, DB latency, and queue backlog.

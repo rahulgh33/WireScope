@@ -1,0 +1,67 @@
+{
+  "id": null,
+  "uid": "aggregator-db",
+  "title": "Aggregator & DB",
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Events Processed",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "sum by(status) (rate(events_processed_total[5m]))", "legendFormat": "{{status}}"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Processing Delay (P95)",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(processing_delay_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Window Flush Duration (P95)",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(window_flush_duration_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Percentile Computation Duration",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(percentile_computation_duration_seconds_sum[5m]) / rate(percentile_computation_duration_seconds_count[5m])", "legendFormat": "avg"}
+      ]
+    },
+    {
+      "type": "gauge",
+      "title": "DB Connections (Active/Idle)",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 6},
+      "options": {"reduceOptions": {"calcs": ["last"]}},
+      "targets": [
+        {"expr": "db_connections_active", "legendFormat": "active"},
+        {"expr": "db_connections_idle", "legendFormat": "idle"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "DB Query Duration (P95)",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(db_query_duration_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ]
+    }
+  ]
+}

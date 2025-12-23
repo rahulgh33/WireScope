@@ -1,0 +1,57 @@
+{
+  "id": null,
+  "uid": "ingest-api",
+  "title": "Ingest API",
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Requests by Status",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "sum by(status) (rate(ingest_requests_total[5m]))", "legendFormat": "{{status}}"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Request Duration (P95)",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(ingest_request_duration_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Auth Failures",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "sum by(reason) (rate(ingest_auth_failures_total[5m]))", "legendFormat": "{{reason}}"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Rate Limit Hits",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "sum(rate(ingest_rate_limit_hits_total[5m]))", "legendFormat": "hits/s"}
+      ]
+    },
+    {
+      "type": "gauge",
+      "title": "Active Connections",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 14, "w": 6, "h": 6},
+      "options": {"reduceOptions": {"calcs": ["last"]}},
+      "targets": [
+        {"expr": "ingest_active_connections"}
+      ]
+    }
+  ]
+}
