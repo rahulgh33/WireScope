@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/network-qoe-telemetry-platform/internal/tracing"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Repository provides common database operations
@@ -31,28 +34,49 @@ func (r *Repository) WithTransaction(ctx context.Context, fn func(*sql.Tx) error
 
 // WithTransactionOptions executes a function within a database transaction with specific options
 func (r *Repository) WithTransactionOptions(ctx context.Context, opts *sql.TxOptions, fn func(*sql.Tx) error) error {
+	tracer := tracing.GetTracer("database")
+	ctx, span := tracer.Start(ctx, "db.transaction")
+	if opts != nil {
+		tracing.AddSpanAttributes(ctx,
+			attribute.Int("tx.isolation", int(opts.Isolation)),
+			attribute.Bool("tx.read_only", opts.ReadOnly),
+		)
+	}
 	tx, err := r.conn.BeginTx(ctx, opts)
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback()
+			tracing.AddSpanEvent(ctx, "tx.rollback.panic")
 			panic(p) // Re-throw panic after rollback
 		}
 	}()
 
 	if err := fn(tx); err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
+			tracing.RecordError(ctx, rbErr)
+			span.End()
 			return fmt.Errorf("transaction failed: %v, rollback failed: %w", err, rbErr)
 		}
+		tracing.RecordError(ctx, err)
+		tracing.AddSpanEvent(ctx, "tx.rollback.error")
+		span.End()
 		return err
 	}
 
 	if err := tx.Commit(); err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	tracing.AddSpanEvent(ctx, "tx.commit.success")
+	span.End()
 
 	return nil
 }
@@ -131,6 +155,14 @@ func NewEventsSeenRepository(conn *Connection) *EventsSeenRepository {
 // InsertEventSeen inserts an event ID into the deduplication table
 // Returns true if the event was newly inserted, false if it already existed
 func (r *EventsSeenRepository) InsertEventSeen(ctx context.Context, eventID, clientID string, tsMs int64) (bool, error) {
+	tracer := tracing.GetTracer("database")
+	ctx, span := tracer.Start(ctx, "db.insert_event_seen")
+	tracing.AddSpanAttributes(ctx,
+		attribute.String("db.table", "events_seen"),
+		attribute.String("event.id", eventID),
+		attribute.String("client.id", clientID),
+		attribute.Int64("ts_ms", tsMs),
+	)
 	query := `
 		INSERT INTO events_seen (event_id, client_id, ts_ms) 
 		VALUES ($1, $2, $3) 
@@ -138,32 +170,48 @@ func (r *EventsSeenRepository) InsertEventSeen(ctx context.Context, eventID, cli
 
 	result, err := r.conn.ExecContext(ctx, query, eventID, clientID, tsMs)
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return false, fmt.Errorf("failed to insert event_seen: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return false, fmt.Errorf("failed to get rows affected: %w", err)
 	}
-
+	tracing.AddSpanAttributes(ctx, attribute.Int64("rows_affected", rowsAffected))
+	span.End()
 	return rowsAffected > 0, nil
 }
 
 // CleanupOldEvents removes events older than the specified duration
 func (r *EventsSeenRepository) CleanupOldEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
+	tracer := tracing.GetTracer("database")
+	ctx, span := tracer.Start(ctx, "db.cleanup_old_events")
 	cutoff := time.Now().Add(-olderThan)
 	query := "DELETE FROM events_seen WHERE created_at < $1"
 
 	result, err := r.conn.ExecContext(ctx, query, cutoff)
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return 0, fmt.Errorf("failed to cleanup old events: %w", err)
 	}
 
 	rowsDeleted, err := result.RowsAffected()
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return 0, fmt.Errorf("failed to get deleted rows count: %w", err)
 	}
-
+	tracing.AddSpanAttributes(ctx,
+		attribute.String("db.table", "events_seen"),
+		attribute.Int64("rows_deleted", rowsDeleted),
+		attribute.String("cutoff", cutoff.Format(time.RFC3339)),
+	)
+	span.End()
 	return rowsDeleted, nil
 }
 
@@ -208,6 +256,14 @@ type WindowedAggregate struct {
 
 // UpsertAggregate inserts or updates an aggregate record
 func (r *AggregatesRepository) UpsertAggregate(ctx context.Context, agg *WindowedAggregate) error {
+	tracer := tracing.GetTracer("database")
+	ctx, span := tracer.Start(ctx, "db.upsert_aggregate")
+	tracing.AddSpanAttributes(ctx,
+		attribute.String("db.table", "agg_1m"),
+		attribute.String("client.id", agg.ClientID),
+		attribute.String("target", agg.Target),
+		attribute.String("window_start", agg.WindowStartTs.Format(time.RFC3339)),
+	)
 	query := `
 		INSERT INTO agg_1m (
 			client_id, target, window_start_ts, count_total, count_success, count_error,
@@ -251,14 +307,23 @@ func (r *AggregatesRepository) UpsertAggregate(ctx context.Context, agg *Windowe
 	)
 
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return fmt.Errorf("failed to upsert aggregate: %w", err)
 	}
-
+	tracing.AddSpanEvent(ctx, "upsert.success")
+	span.End()
 	return nil
 }
 
 // GetAggregatesByWindow retrieves aggregates for a specific time window
 func (r *AggregatesRepository) GetAggregatesByWindow(ctx context.Context, windowStart time.Time) ([]*WindowedAggregate, error) {
+	tracer := tracing.GetTracer("database")
+	ctx, span := tracer.Start(ctx, "db.query_aggregates_by_window")
+	tracing.AddSpanAttributes(ctx,
+		attribute.String("db.table", "agg_1m"),
+		attribute.String("window_start", windowStart.Format(time.RFC3339)),
+	)
 	query := `
 		SELECT client_id, target, window_start_ts, count_total, count_success, count_error,
 			   dns_error_count, tcp_error_count, tls_error_count, http_error_count, throughput_error_count,
@@ -270,6 +335,8 @@ func (r *AggregatesRepository) GetAggregatesByWindow(ctx context.Context, window
 
 	rows, err := r.conn.QueryContext(ctx, query, windowStart)
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return nil, fmt.Errorf("failed to query aggregates by window: %w", err)
 	}
 	defer rows.Close()
@@ -288,14 +355,20 @@ func (r *AggregatesRepository) GetAggregatesByWindow(ctx context.Context, window
 			&agg.UpdatedAt,
 		)
 		if err != nil {
+			tracing.RecordError(ctx, err)
+			span.End()
 			return nil, fmt.Errorf("failed to scan aggregate row: %w", err)
 		}
 		aggregates = append(aggregates, agg)
 	}
 
 	if err := rows.Err(); err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return nil, fmt.Errorf("error iterating aggregate rows: %w", err)
 	}
+	tracing.AddSpanAttributes(ctx, attribute.Int("rows", len(aggregates)))
+	span.End()
 
 	return aggregates, nil
 }
@@ -303,6 +376,14 @@ func (r *AggregatesRepository) GetAggregatesByWindow(ctx context.Context, window
 // GetHistoricalAggregates fetches the most recent N windows for baseline calculation
 // Used by the diagnosis engine to establish baseline metrics
 func (r *Repository) GetHistoricalAggregates(ctx context.Context, clientID, target string, limit int) ([]WindowedAggregate, error) {
+	tracer := tracing.GetTracer("database")
+	ctx, span := tracer.Start(ctx, "db.query_historical_aggregates")
+	tracing.AddSpanAttributes(ctx,
+		attribute.String("db.table", "agg_1m"),
+		attribute.String("client.id", clientID),
+		attribute.String("target", target),
+		attribute.Int("limit", limit),
+	)
 	query := `
 		SELECT 
 			client_id, target, window_start_ts,
@@ -321,6 +402,8 @@ func (r *Repository) GetHistoricalAggregates(ctx context.Context, clientID, targ
 
 	rows, err := r.conn.QueryContext(ctx, query, clientID, target, limit)
 	if err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return nil, fmt.Errorf("failed to query historical aggregates: %w", err)
 	}
 	defer rows.Close()
@@ -339,14 +422,20 @@ func (r *Repository) GetHistoricalAggregates(ctx context.Context, clientID, targ
 			&agg.UpdatedAt,
 		)
 		if err != nil {
+			tracing.RecordError(ctx, err)
+			span.End()
 			return nil, fmt.Errorf("failed to scan aggregate row: %w", err)
 		}
 		aggregates = append(aggregates, agg)
 	}
 
 	if err := rows.Err(); err != nil {
+		tracing.RecordError(ctx, err)
+		span.End()
 		return nil, fmt.Errorf("error iterating aggregate rows: %w", err)
 	}
+	tracing.AddSpanAttributes(ctx, attribute.Int("rows", len(aggregates)))
+	span.End()
 
 	return aggregates, nil
 }
