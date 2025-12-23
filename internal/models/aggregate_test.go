@@ -28,19 +28,19 @@ func TestCalculatePercentile(t *testing.T) {
 			name:       "P50 of sorted data",
 			data:       []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 			percentile: 50,
-			want:       5.0,
+			want:       5.5, // 0.5 * (10-1) = 4.5, interpolate between index 4 (value 5) and 5 (value 6) = 5.5
 		},
 		{
 			name:       "P95 of sorted data",
 			data:       []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 			percentile: 95,
-			want:       9.0, // floor((95/100) * 9) = 8, which is index 8 = value 9
+			want:       9.55, // 0.95 * (10-1) = 8.55, interpolate between index 8 (value 9) and 9 (value 10)
 		},
 		{
 			name:       "P50 of unsorted data",
 			data:       []float64{10, 1, 5, 3, 8, 2, 7, 4, 9, 6},
 			percentile: 50,
-			want:       5.0,
+			want:       5.5, // Same data as sorted test
 		},
 		{
 			name:       "P95 with duplicates",
@@ -52,14 +52,16 @@ func TestCalculatePercentile(t *testing.T) {
 			name:       "P99 of 100 values",
 			data:       make100Values(),
 			percentile: 99,
-			want:       98.0, // floor((99/100) * 99) = 98, which is index 98 = value 98
+			want:       98.01, // 0.99 * (100-1) = 98.01, interpolate between index 98 (value 98) and 99 (value 99)
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := calculatePercentile(tt.data, tt.percentile)
-			if got != tt.want {
+			// Use tolerance for floating point comparison
+			tolerance := 0.01
+			if diff := got - tt.want; diff < -tolerance || diff > tolerance {
 				t.Errorf("calculatePercentile() = %v, want %v", got, tt.want)
 			}
 		})

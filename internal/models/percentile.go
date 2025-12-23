@@ -4,13 +4,22 @@ import (
 	"sort"
 )
 
+// CalculatePercentiles computes both P50 and P95 percentiles from a slice of float64 values.
+// Returns (p50, p95) values.
+func CalculatePercentiles(data []float64) (float64, float64) {
+	if len(data) == 0 {
+		return 0, 0
+	}
+	return calculatePercentile(data, 50), calculatePercentile(data, 95)
+}
+
 // calculatePercentile computes the exact percentile from a slice of float64 values.
 // The percentile parameter should be between 0 and 100.
 //
-// This implementation uses the nearest-rank method:
+// This implementation uses linear interpolation method:
 // - Sorts the input data
-// - Finds the index at the percentile position
-// - Returns the value at that index
+// - Calculates the exact position using (percentile/100) * (N-1)
+// - Interpolates between adjacent values if position is not an integer
 //
 // Requirement: 4.2 - MVP exact percentile calculation from full sample set
 func calculatePercentile(data []float64, percentile float64) float64 {
@@ -23,21 +32,26 @@ func calculatePercentile(data []float64, percentile float64) float64 {
 	copy(sorted, data)
 	sort.Float64s(sorted)
 
-	// Calculate the index using nearest-rank method
-	// For P50 with 10 samples: floor((50/100) * (10-1)) = floor(4.5) = 4 (0-based index for 5th element)
-	// For P95 with 10 samples: floor((95/100) * (10-1)) = floor(8.55) = 8 (0-based index for 9th element)
-	// Using floor of (percentile/100 * (len-1)) for proper distribution
-	index := int(float64(len(sorted)-1) * percentile / 100.0)
-
+	// Calculate the exact position using linear interpolation method
+	// For P50 with 2 samples: 0.5 * (2-1) = 0.5 → interpolate between index 0 and 1
+	// For P95 with 2 samples: 0.95 * (2-1) = 0.95 → interpolate between index 0 and 1
+	position := (percentile / 100.0) * float64(len(sorted)-1)
+	
+	// Get the lower and upper indices
+	lowerIndex := int(position)
+	upperIndex := lowerIndex + 1
+	
 	// Handle edge cases
-	if index < 0 {
-		index = 0
+	if lowerIndex < 0 {
+		lowerIndex = 0
 	}
-	if index >= len(sorted) {
-		index = len(sorted) - 1
+	if upperIndex >= len(sorted) {
+		return sorted[len(sorted)-1]
 	}
-
-	return sorted[index]
+	
+	// Linear interpolation
+	fraction := position - float64(lowerIndex)
+	return sorted[lowerIndex] + fraction*(sorted[upperIndex]-sorted[lowerIndex])
 }
 
 // downsampleUniform performs uniform downsampling when sample size exceeds limit.
