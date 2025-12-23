@@ -136,7 +136,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Implement Throughput-bound diagnosis: throughput p50 drops ≥30% below baseline
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ]* 16.1 Write property tests for diagnosis thresholds
+- [x]* 16.1 Write property tests for diagnosis thresholds
   - **Properties 9-13: Diagnosis accuracy with explicit thresholds**
   - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
 
