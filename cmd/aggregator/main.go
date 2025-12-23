@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/network-qoe-telemetry-platform/internal/database"
+	"github.com/network-qoe-telemetry-platform/internal/diagnosis"
 	"github.com/network-qoe-telemetry-platform/internal/models"
 	"github.com/network-qoe-telemetry-platform/internal/queue"
 )
@@ -81,6 +82,7 @@ type Aggregator struct {
 	processor      models.EventProcessor
 	eventsSeenRepo *database.EventsSeenRepository
 	aggregatesRepo *database.AggregatesRepository
+	repository     *database.Repository // For fetching historical data
 
 	mu               sync.RWMutex
 	aggregators      map[string]*models.InMemoryAggregator
@@ -102,6 +104,7 @@ func NewAggregator(
 	processor models.EventProcessor,
 	eventsSeenRepo *database.EventsSeenRepository,
 	aggregatesRepo *database.AggregatesRepository,
+	repository *database.Repository,
 	windowSize, flushDelay, lateTolerance time.Duration,
 ) *Aggregator {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,6 +113,7 @@ func NewAggregator(
 		processor:        processor,
 		eventsSeenRepo:   eventsSeenRepo,
 		aggregatesRepo:   aggregatesRepo,
+		repository:       repository,
 		aggregators:      make(map[string]*models.InMemoryAggregator),
 		windowStartTimes: make(map[int64]bool),
 		windowSize:       windowSize,
@@ -306,7 +310,15 @@ func (a *Aggregator) flushWindow(windowStartMs int64) {
 	for _, aggregator := range aggregatorsToFlush {
 		windowedAgg := aggregator.ToWindowedAggregate()
 
+		// Run diagnosis engine to determine issue type
+		// Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+		diagnosisLabel := a.runDiagnosis(ctx, windowedAgg)
+
 		dbAgg := convertToDBAggregate(windowedAgg)
+		// Convert string to *string for diagnosis_label
+		if diagnosisLabel != "" {
+			dbAgg.DiagnosisLabel = &diagnosisLabel
+		}
 
 		if err := a.aggregatesRepo.UpsertAggregate(ctx, dbAgg); err != nil {
 			log.Printf("Failed to upsert aggregate for client %s, target %s, window %s: %v",
@@ -314,9 +326,9 @@ func (a *Aggregator) flushWindow(windowStartMs int64) {
 			continue
 		}
 
-		log.Printf("Flushed aggregate: client=%s, target=%s, window=%s, total=%d, success=%d, error=%d",
+		log.Printf("Flushed aggregate: client=%s, target=%s, window=%s, total=%d, success=%d, error=%d, diagnosis=%s",
 			windowedAgg.ClientID, windowedAgg.Target, windowedAgg.WindowStartTs.Format(time.RFC3339),
-			windowedAgg.CountTotal, windowedAgg.CountSuccess, windowedAgg.CountError)
+			windowedAgg.CountTotal, windowedAgg.CountSuccess, windowedAgg.CountError, diagnosisLabel)
 	}
 }
 
@@ -332,6 +344,72 @@ func (a *Aggregator) flushAllWindows() {
 	for _, windowStartMs := range allWindowStarts {
 		a.flushWindow(windowStartMs)
 	}
+}
+
+// runDiagnosis performs automated diagnosis on the current window metrics
+// Returns a diagnosis label based on explicit thresholds and historical baseline
+//
+// Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+func (a *Aggregator) runDiagnosis(ctx context.Context, agg *models.WindowedAggregate) string {
+	// Fetch last 10 windows for baseline calculation
+	historicalAggs, err := a.repository.GetHistoricalAggregates(ctx, agg.ClientID, agg.Target, 10)
+	if err != nil {
+		log.Printf("Warning: Failed to fetch historical aggregates for diagnosis: %v", err)
+		return ""
+	}
+
+	// Need at least 3 historical windows for meaningful baseline
+	if len(historicalAggs) < 3 {
+		return ""
+	}
+
+	// Convert historical aggregates to diagnosis.WindowMetrics
+	var historicalWindows []diagnosis.WindowMetrics
+	for _, h := range historicalAggs {
+		// Skip windows with insufficient data
+		if h.CountSuccess < 5 {
+			continue
+		}
+
+		window := diagnosis.WindowMetrics{
+			WindowStartTs:   h.WindowStartTs,
+			DNSP95:          getFloatValue(h.DNSP95),
+			TCPP95:          getFloatValue(h.TCPP95),
+			TLSP95:          getFloatValue(h.TLSP95),
+			TTFBP95:         getFloatValue(h.TTFBP95),
+			TotalLatencyP95: getFloatValue(h.DNSP95) + getFloatValue(h.TCPP95) + getFloatValue(h.TLSP95) + getFloatValue(h.TTFBP95),
+			ThroughputP50:   getFloatValue(h.ThroughputP50),
+			CountSuccess:    int(h.CountSuccess),
+		}
+		historicalWindows = append(historicalWindows, window)
+	}
+
+	// Calculate baseline from historical data
+	baseline := diagnosis.CalculateBaseline(historicalWindows)
+
+	// Build current window metrics
+	currentWindow := diagnosis.WindowMetrics{
+		WindowStartTs:   agg.WindowStartTs,
+		DNSP95:          agg.DNSP95,
+		TCPP95:          agg.TCPP95,
+		TLSP95:          agg.TLSP95,
+		TTFBP95:         agg.TTFBP95,
+		TotalLatencyP95: agg.DNSP95 + agg.TCPP95 + agg.TLSP95 + agg.TTFBP95,
+		ThroughputP50:   agg.ThroughputP50,
+		CountSuccess:    int(agg.CountSuccess),
+	}
+
+	// Run diagnosis
+	label := diagnosis.Diagnose(currentWindow, baseline)
+	return string(label)
+}
+
+// Helper function to safely extract float value from *float64
+func getFloatValue(ptr *float64) float64 {
+	if ptr == nil {
+		return 0.0
+	}
+	return *ptr
 }
 
 func getAggregatorKey(clientID, target string, windowStartMs int64) string {
@@ -410,10 +488,14 @@ func main() {
 
 	log.Printf("Connected to NATS")
 
+	// Create general repository for historical queries
+	repo := database.NewRepository(dbConn)
+
 	aggregator := NewAggregator(
 		processor,
 		eventsSeenRepo,
 		aggregatesRepo,
+		repo,
 		*windowSize,
 		*flushDelay,
 		*lateTolerance,

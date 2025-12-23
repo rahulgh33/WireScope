@@ -299,3 +299,54 @@ func (r *AggregatesRepository) GetAggregatesByWindow(ctx context.Context, window
 
 	return aggregates, nil
 }
+
+// GetHistoricalAggregates fetches the most recent N windows for baseline calculation
+// Used by the diagnosis engine to establish baseline metrics
+func (r *Repository) GetHistoricalAggregates(ctx context.Context, clientID, target string, limit int) ([]WindowedAggregate, error) {
+	query := `
+		SELECT 
+			client_id, target, window_start_ts,
+			count_total, count_success, count_error,
+			dns_error_count, tcp_error_count, tls_error_count,
+			http_error_count, throughput_error_count,
+			dns_p50, dns_p95, tcp_p50, tcp_p95,
+			tls_p50, tls_p95, ttfb_p50, ttfb_p95,
+			throughput_p50, throughput_p95, diagnosis_label,
+			updated_at
+		FROM agg_1m
+		WHERE client_id = $1 AND target = $2
+		ORDER BY window_start_ts DESC
+		LIMIT $3
+	`
+
+	rows, err := r.conn.QueryContext(ctx, query, clientID, target, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query historical aggregates: %w", err)
+	}
+	defer rows.Close()
+
+	var aggregates []WindowedAggregate
+	for rows.Next() {
+		var agg WindowedAggregate
+		err := rows.Scan(
+			&agg.ClientID, &agg.Target, &agg.WindowStartTs,
+			&agg.CountTotal, &agg.CountSuccess, &agg.CountError,
+			&agg.DNSErrorCount, &agg.TCPErrorCount, &agg.TLSErrorCount,
+			&agg.HTTPErrorCount, &agg.ThroughputErrorCount,
+			&agg.DNSP50, &agg.DNSP95, &agg.TCPP50, &agg.TCPP95,
+			&agg.TLSP50, &agg.TLSP95, &agg.TTFBP50, &agg.TTFBP95,
+			&agg.ThroughputP50, &agg.ThroughputP95, &agg.DiagnosisLabel,
+			&agg.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan aggregate row: %w", err)
+		}
+		aggregates = append(aggregates, agg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating aggregate rows: %w", err)
+	}
+
+	return aggregates, nil
+}
