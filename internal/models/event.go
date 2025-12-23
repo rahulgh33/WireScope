@@ -41,6 +41,13 @@ type TelemetryEvent struct {
 
 	// ErrorStage indicates which stage failed (if any): DNS, TCP, TLS, HTTP, or throughput
 	ErrorStage *string `json:"error_stage,omitempty"`
+
+	// TraceParent carries W3C traceparent for cross-service trace propagation
+	// Optional and populated by ingest before publishing to the queue
+	TraceParent *string `json:"traceparent,omitempty"`
+
+	// TraceState carries W3C tracestate for vendor-specific context
+	TraceState *string `json:"tracestate,omitempty"`
 }
 
 // NetworkContext provides additional context about the network environment

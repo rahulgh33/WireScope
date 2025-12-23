@@ -187,7 +187,9 @@ func (a *Aggregator) handleEvent(event *models.TelemetryEvent) error {
 	// Create trace span for event processing
 	// Requirement: 6.4 - Aggregator operation tracing
 	tracer := tracing.GetTracer("aggregator")
-	ctx, span := tracer.Start(a.ctx, "aggregator.processEvent")
+	// Extract parent context from event's trace fields for propagation
+	parentCtx := tracing.ExtractContextFromEvent(a.ctx, event)
+	ctx, span := tracer.Start(parentCtx, "aggregator.processEvent")
 	defer span.End()
 
 	// Add event attributes to span

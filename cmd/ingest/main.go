@@ -353,6 +353,8 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	// Publish event to NATS JetStream
 	// Requirement: 10.3 - Event publishing to NATS JetStream
 	tracing.AddSpanEvent(ctx, "queue.publish.start")
+	// Inject trace context for downstream propagation
+	tracing.InjectContextIntoEvent(ctx, &event)
 	if err := api.processor.PublishEvent(&event); err != nil {
 		status = "publish_error"
 		tracing.RecordError(ctx, err)

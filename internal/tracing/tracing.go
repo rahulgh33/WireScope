@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
+	"github.com/network-qoe-telemetry-platform/internal/models"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -131,4 +133,40 @@ func RecordError(ctx context.Context, err error) {
 	if span.IsRecording() && err != nil {
 		span.RecordError(err)
 	}
+}
+
+// InjectContextIntoEvent serializes the trace context from ctx into
+// the provided TelemetryEvent's TraceParent/TraceState fields.
+// Use this before publishing the event to a message queue to enable
+// downstream services to continue the trace.
+func InjectContextIntoEvent(ctx context.Context, e *models.TelemetryEvent) {
+	if e == nil {
+		return
+	}
+	headers := http.Header{}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(headers))
+
+	if tp := headers.Get("traceparent"); tp != "" {
+		e.TraceParent = &tp
+	}
+	if ts := headers.Get("tracestate"); ts != "" {
+		e.TraceState = &ts
+	}
+}
+
+// ExtractContextFromEvent reconstructs a context using the event's
+// TraceParent/TraceState fields. Use this as the parent context when
+// starting spans that handle the event in downstream services.
+func ExtractContextFromEvent(ctx context.Context, e *models.TelemetryEvent) context.Context {
+	if e == nil {
+		return ctx
+	}
+	headers := http.Header{}
+	if e.TraceParent != nil {
+		headers.Set("traceparent", *e.TraceParent)
+	}
+	if e.TraceState != nil {
+		headers.Set("tracestate", *e.TraceState)
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(headers))
 }
