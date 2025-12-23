@@ -128,7 +128,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
 
 ### Milestone C: Observability & Operations
 
-- [ ] 16. Implement diagnosis engine with explicit thresholds
+- [x] 16. Implement diagnosis engine with explicit thresholds
   - Create baseline calculation using simple moving average over last 10 windows
   - Implement DNS-bound diagnosis: DNS p95 ≥60% of total latency p95 and exceeds baseline by ≥50%
   - Add Handshake-bound diagnosis: TCP/TLS p95 exceeds baseline by 2σ or 100%
