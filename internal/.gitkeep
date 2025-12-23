@@ -1,0 +1,2 @@
+# This file ensures the internal directory is tracked by git
+# Internal packages will be added here during implementation

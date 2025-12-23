@@ -1,0 +1,10 @@
+FROM python:3.11-alpine
+
+WORKDIR /app
+COPY test-server.py .
+
+RUN chmod +x test-server.py
+
+EXPOSE 80
+
+CMD ["python3", "test-server.py"]
