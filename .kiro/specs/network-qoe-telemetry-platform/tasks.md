@@ -240,3 +240,86 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Show root cause analysis: "Why is throughput low for client X?"
   - Present predictive insights: "Forecast next week's capacity needs"
   - Validate comparative analysis: "Compare weekend vs weekday performance"
+
+### Milestone E: User Interface & Visualization
+
+- [ ] 30. Design UI architecture and technology stack
+  - Select frontend framework (React, Vue, or Svelte)
+  - Design REST API endpoints for UI data access
+  - Plan responsive layout with mobile support
+  - Define user authentication and authorization strategy
+  - Create wireframes for key screens: dashboard, clients, targets, diagnostics
+  - _Requirements: UI foundation_
+
+- [ ] 31. Implement backend API for UI
+  - Create REST API endpoints for aggregate queries (time-series data)
+  - Add client management APIs: list, filter, search clients
+  - Implement target management APIs: list targets, view target metrics
+  - Build diagnostic history API with filtering and pagination
+  - Add real-time metrics API with WebSocket support
+  - Implement authentication endpoints (login, logout, session management)
+  - _Requirements: API layer for UI_
+
+- [ ] 32. Build main dashboard view
+  - Create overview dashboard with key metrics summary
+  - Implement time-series charts for P50/P95 latency trends
+  - Add error rate visualization with breakdown by stage
+  - Build throughput trends with client/target filtering
+  - Create active clients and targets summary cards
+  - Add recent diagnostics feed with severity indicators
+  - Implement time range selector (1h, 6h, 24h, 7d, 30d, custom)
+  - _Requirements: Dashboard visualization_
+
+- [ ] 33. Create client and target management views
+  - Build clients list with search, sort, and filter capabilities
+  - Implement client detail view with performance history
+  - Create target list with health status indicators
+  - Add target detail view with per-client performance breakdown
+  - Implement comparison view for multiple clients or targets
+  - Add export functionality for reports (CSV, JSON)
+  - _Requirements: Client/target management UI_
+
+- [ ] 34. Implement diagnostics and analysis views
+  - Create diagnostic dashboard with problem categorization
+  - Build detailed diagnostic view with root cause analysis
+  - Implement baseline comparison visualization
+  - Add alert configuration interface for thresholds
+  - Create historical diagnostics timeline view
+  - Implement diagnostic filtering by client, target, and type
+  - _Requirements: Diagnostics UI_
+
+- [ ] 35. Add real-time monitoring and live updates
+  - Implement WebSocket connection for live metric updates
+  - Create live dashboard with auto-refreshing charts
+  - Add real-time event stream viewer
+  - Build live probe status indicators
+  - Implement notification system for critical alerts
+  - Add connection status indicator with auto-reconnect
+  - _Requirements: Real-time features_
+
+- [ ] 36. Build configuration and admin views
+  - Create probe configuration interface
+  - Add ingest API token management
+  - Implement user management and permissions
+  - Build system settings view (retention, thresholds)
+  - Create database maintenance controls
+  - Add system health monitoring dashboard
+  - _Requirements: Admin interface_
+
+- [ ] 37. Implement UI testing and polish
+  - Add unit tests for UI components
+  - Create integration tests for API interactions
+  - Implement responsive design testing
+  - Add accessibility features (WCAG compliance)
+  - Create loading states and error handling
+  - Add tooltips and help documentation
+  - Implement dark mode theme
+  - _Requirements: UI quality and testing_
+
+- [ ] 38. Milestone E Demo - Complete UI Experience
+  - Demonstrate dashboard with live telemetry data
+  - Show client performance analysis workflow
+  - Walk through diagnostic investigation process
+  - Demonstrate real-time monitoring capabilities
+  - Show configuration and admin features
+  - Validate responsive design on different devices
