@@ -62,14 +62,14 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Create configuration management for targets, intervals, and API credentials
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 7. Create ingest API service (minimal)
+- [x] 7. Create ingest API service (minimal)
   - Implement HTTP server with basic authentication middleware using API tokens
   - Add request validation with schema version checking and forward compatibility
   - Implement event publishing to NATS JetStream with error handling
   - Add recv_ts_ms timestamp injection for clock skew debugging
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-- [ ] 8. Implement aggregator consumer with deduplication
+- [x] 8. Implement aggregator consumer with deduplication
   - Create NATS consumer with durable subscription and explicit acknowledgment
   - Implement exactly-once aggregate effects using events_seen deduplication table
   - Build transactional pattern: INSERT INTO events_seen ON CONFLICT DO NOTHING
@@ -77,14 +77,14 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Store raw samples in memory per window per (client_id, target)
   - _Requirements: 3.2, 3.3, 3.5, 4.1_
 
-- [ ] 9. Build percentile calculation and aggregate persistence
+- [x] 9. Build percentile calculation and aggregate persistence
   - Implement exact P50/P95 calculation from sorted arrays (up to 10,000 samples)
   - Add uniform downsampling for windows exceeding sample limits
   - Implement quality counters: count_total, count_success, count_error, per-stage error counts
   - Build aggregate upsert logic with conflict resolution
   - _Requirements: 4.2, 4.4, 4.5_
 
-- [ ] 10. Milestone A Demo - End-to-end data flow
+- [x] 10. Milestone A Demo - End-to-end data flow
   - Verify probe → ingest → JetStream → aggregator → PostgreSQL pipeline
   - Test basic percentile calculations and quality counters
   - Demonstrate window-based aggregation with sample data
