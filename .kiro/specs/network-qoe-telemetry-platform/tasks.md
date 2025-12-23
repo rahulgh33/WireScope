@@ -140,7 +140,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - **Properties 9-13: Diagnosis accuracy with explicit thresholds**
   - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
 
-- [ ] 17. Add comprehensive observability
+- [x] 17. Add comprehensive observability
   - Expand Prometheus metrics with cardinality management (hash client_id, target)
   - Create detailed ingest API metrics: authentication failures, rate limiting
   - Add comprehensive queue metrics: consumer lag, ack pending, processing duration

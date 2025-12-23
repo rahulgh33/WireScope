@@ -15,25 +15,29 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/network-qoe-telemetry-platform/internal/database"
 	"github.com/network-qoe-telemetry-platform/internal/diagnosis"
 	"github.com/network-qoe-telemetry-platform/internal/models"
 	"github.com/network-qoe-telemetry-platform/internal/queue"
+	"github.com/network-qoe-telemetry-platform/internal/tracing"
 )
 
 var (
-	natsURL       = flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
-	dbHost        = flag.String("db-host", "localhost", "PostgreSQL host")
-	dbPort        = flag.Int("db-port", 5432, "PostgreSQL port")
-	dbName        = flag.String("db-name", "telemetry", "PostgreSQL database name")
-	dbUser        = flag.String("db-user", "postgres", "PostgreSQL user")
-	dbPassword    = flag.String("db-password", "postgres", "PostgreSQL password")
-	windowSize    = flag.Duration("window-size", 60*time.Second, "Aggregation window size")
-	flushDelay    = flag.Duration("flush-delay", 10*time.Second, "Delay before flushing closed windows")
-	lateTolerance = flag.Duration("late-tolerance", 2*time.Minute, "Tolerance for late event handling")
-	consumerName  = flag.String("consumer-name", "aggregator-1", "Unique consumer name for this instance")
-	metricsPort   = flag.String("metrics-port", "9090", "Prometheus metrics port")
+	natsURL        = flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
+	dbHost         = flag.String("db-host", "localhost", "PostgreSQL host")
+	dbPort         = flag.Int("db-port", 5432, "PostgreSQL port")
+	dbName         = flag.String("db-name", "telemetry", "PostgreSQL database name")
+	dbUser         = flag.String("db-user", "postgres", "PostgreSQL user")
+	dbPassword     = flag.String("db-password", "postgres", "PostgreSQL password")
+	windowSize     = flag.Duration("window-size", 60*time.Second, "Aggregation window size")
+	flushDelay     = flag.Duration("flush-delay", 10*time.Second, "Delay before flushing closed windows")
+	lateTolerance  = flag.Duration("late-tolerance", 2*time.Minute, "Tolerance for late event handling")
+	consumerName   = flag.String("consumer-name", "aggregator-1", "Unique consumer name for this instance")
+	metricsPort    = flag.String("metrics-port", "9090", "Prometheus metrics port")
+	otlpEndpoint   = flag.String("otlp-endpoint", "localhost:4318", "OpenTelemetry OTLP HTTP endpoint")
+	tracingEnabled = flag.Bool("tracing-enabled", true, "Enable distributed tracing")
 )
 
 // Prometheus metrics
@@ -180,7 +184,23 @@ func (a *Aggregator) Stop() {
 }
 
 func (a *Aggregator) handleEvent(event *models.TelemetryEvent) error {
-	if err := a.processEventWithDedup(event); err != nil {
+	// Create trace span for event processing
+	// Requirement: 6.4 - Aggregator operation tracing
+	tracer := tracing.GetTracer("aggregator")
+	ctx, span := tracer.Start(a.ctx, "aggregator.processEvent")
+	defer span.End()
+
+	// Add event attributes to span
+	// Requirement: 6.5 - Span attributes for debugging
+	span.SetAttributes(
+		attribute.String("event.id", event.EventID),
+		attribute.String("event.client_id", event.ClientID),
+		attribute.String("event.target", event.Target),
+		attribute.Int64("event.timestamp_ms", event.TimestampMs),
+	)
+
+	if err := a.processEventWithDedup(ctx, event); err != nil {
+		tracing.RecordError(ctx, err)
 		return fmt.Errorf("failed to process event %s: %w", event.EventID, err)
 	}
 
@@ -188,18 +208,20 @@ func (a *Aggregator) handleEvent(event *models.TelemetryEvent) error {
 		log.Printf("Warning: Failed to explicitly ACK event %s: %v", event.EventID, err)
 	}
 
+	tracing.AddSpanEvent(ctx, "event.processed")
 	return nil
 }
 
-func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
-	ctx := context.Background()
-
+func (a *Aggregator) processEventWithDedup(ctx context.Context, event *models.TelemetryEvent) error {
 	// Track processing delay if recv_ts_ms is available
 	if event.RecvTimestampMs != nil && *event.RecvTimestampMs > 0 {
 		defer func() {
 			// Calculate end-to-end delay from recv_ts_ms to now
 			delaySeconds := float64(time.Now().UnixMilli()-*event.RecvTimestampMs) / 1000.0
 			processingDelaySeconds.Observe(delaySeconds)
+
+			// Add delay to span
+			tracing.AddSpanAttributes(ctx, attribute.Float64("processing.delay_seconds", delaySeconds))
 		}()
 	}
 
@@ -211,6 +233,7 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 
 		if latencyMs > a.lateTolerance.Milliseconds() {
 			lateEventsTotal.Inc()
+			tracing.AddSpanEvent(ctx, "event.late", attribute.Int64("latency_ms", latencyMs))
 			log.Printf("Late event detected: %s (latency: %dms > %dms tolerance)",
 				event.EventID, latencyMs, a.lateTolerance.Milliseconds())
 			// Continue processing late events, just log them for monitoring
@@ -218,15 +241,20 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 	}
 
 	var isNewEvent bool
+	// Add database transaction span
+	// Requirement: 6.4 - Database transaction tracing
+	tracing.AddSpanEvent(ctx, "db.transaction.start")
 	err := a.eventsSeenRepo.WithTransaction(ctx, func(tx *sql.Tx) error {
 		isNew, err := a.eventsSeenRepo.InsertEventSeen(ctx, event.EventID, event.ClientID, event.TimestampMs)
 		if err != nil {
+			tracing.RecordError(ctx, err)
 			return err
 		}
 
 		isNewEvent = isNew
 
 		if !isNew {
+			tracing.AddSpanEvent(ctx, "event.duplicate")
 			log.Printf("Duplicate event detected: %s (client: %s)", event.EventID, event.ClientID)
 			return nil
 		}
@@ -234,6 +262,12 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 		windowStartMs := event.GetWindowStartMs()
 		windowStartTime := time.UnixMilli(windowStartMs)
 		aggregatorKey := getAggregatorKey(event.ClientID, event.Target, windowStartMs)
+
+		// Add window attributes to span
+		tracing.AddSpanAttributes(ctx,
+			attribute.Int64("window.start_ms", windowStartMs),
+			attribute.String("window.start_time", windowStartTime.Format(time.RFC3339)),
+		)
 
 		a.mu.Lock()
 		aggregator, exists := a.aggregators[aggregatorKey]
@@ -246,10 +280,12 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 			aggregator = models.NewInMemoryAggregator(key)
 			a.aggregators[aggregatorKey] = aggregator
 			a.windowStartTimes[windowStartMs] = true
+			tracing.AddSpanEvent(ctx, "aggregator.created")
 		}
 		a.mu.Unlock()
 
 		aggregator.AddEvent(event)
+		tracing.AddSpanEvent(ctx, "event.aggregated")
 
 		log.Printf("Processed event %s (client: %s, target: %s, window: %d)",
 			event.EventID, event.ClientID, event.Target, windowStartMs)
@@ -502,6 +538,22 @@ func main() {
 	log.Printf("NATS URL: %s", *natsURL)
 	log.Printf("Database: %s@%s:%d/%s", *dbUser, *dbHost, *dbPort, *dbName)
 	log.Printf("Consumer name: %s", *consumerName)
+
+	// Initialize OpenTelemetry tracing
+	// Requirement: 6.4 - Distributed tracing setup
+	tracingConfig := tracing.DefaultConfig("aggregator")
+	tracingConfig.OTLPEndpoint = *otlpEndpoint
+	tracingConfig.Enabled = *tracingEnabled
+
+	shutdownTracing, err := tracing.InitTracer(tracingConfig)
+	if err != nil {
+		log.Fatalf("Failed to initialize tracing: %v", err)
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			log.Printf("Error shutting down tracing: %v", err)
+		}
+	}()
 
 	dbConfig := database.DefaultConnectionConfig()
 	dbConfig.Host = *dbHost

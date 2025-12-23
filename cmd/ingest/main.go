@@ -1,22 +1,28 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/network-qoe-telemetry-platform/internal/metrics"
 	"github.com/network-qoe-telemetry-platform/internal/models"
 	"github.com/network-qoe-telemetry-platform/internal/queue"
+	"github.com/network-qoe-telemetry-platform/internal/tracing"
 )
 
 var (
@@ -25,6 +31,8 @@ var (
 	apiTokens      = flag.String("api-tokens", "", "Comma-separated list of valid API tokens")
 	rateLimit      = flag.Int("rate-limit", 100, "Maximum requests per client per second")
 	rateLimitBurst = flag.Int("rate-limit-burst", 20, "Maximum burst size for rate limiting")
+	otlpEndpoint   = flag.String("otlp-endpoint", "localhost:4318", "OpenTelemetry OTLP HTTP endpoint")
+	tracingEnabled = flag.Bool("tracing-enabled", true, "Enable distributed tracing")
 )
 
 // Prometheus metrics
@@ -235,8 +243,13 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // handleIngestEvent handles POST /events for telemetry event ingestion
 //
-// Requirements: 10.2, 10.3, 10.4, 10.5
+// Requirements: 10.2, 10.3, 10.4, 10.5, 6.4, 6.5
 func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tracer := tracing.GetTracer("ingest-api")
+	ctx, span := tracer.Start(ctx, "ingest.handleEvent")
+	defer span.End()
+
 	start := time.Now()
 	status := "success"
 	var payloadSize int64
@@ -247,16 +260,21 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 		ingestRequestsTotal.WithLabelValues(status).Inc()
 		ingestRequestDuration.WithLabelValues(status).Observe(duration)
 		ingestPayloadSize.WithLabelValues(status).Observe(float64(payloadSize))
+
+		// Add status to span
+		span.SetAttributes(attribute.String("http.status", status))
 	}()
 
 	if r.Method != http.MethodPost {
 		status = "method_not_allowed"
+		tracing.RecordError(ctx, fmt.Errorf("method not allowed: %s", r.Method))
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Track payload size
 	payloadSize = r.ContentLength
+	span.SetAttributes(attribute.Int64("http.request.body.size", payloadSize))
 
 	// Parse JSON request body
 	var event models.TelemetryEvent
@@ -265,10 +283,20 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 
 	if err := decoder.Decode(&event); err != nil {
 		status = "validation_error"
+		tracing.RecordError(ctx, err)
 		log.Printf("Failed to decode event: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
+
+	// Add event attributes to span for debugging
+	// Requirement: 6.5 - Span attributes for debugging
+	span.SetAttributes(
+		attribute.String("event.id", event.EventID),
+		attribute.String("event.client_id", event.ClientID),
+		attribute.String("event.target", event.Target),
+		attribute.String("event.schema_version", event.SchemaVersion),
+	)
 
 	// Hash client_id for cardinality management
 	clientIDHash = metrics.HashClientID(event.ClientID)
@@ -282,6 +310,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	// Requirement: 10.2 - Request validation with schema version checking
 	if event.SchemaVersion == "" {
 		status = "validation_error"
+		tracing.RecordError(ctx, fmt.Errorf("missing schema_version"))
 		http.Error(w, "Missing schema_version", http.StatusBadRequest)
 		return
 	}
@@ -295,15 +324,19 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 
 	if !supportedVersions[event.SchemaVersion] {
 		log.Printf("Warning: Unknown schema version %s, accepting anyway for forward compatibility", event.SchemaVersion)
+		tracing.AddSpanEvent(ctx, "schema_version.unknown", attribute.String("version", event.SchemaVersion))
 	}
 
 	// Validate event structure
 	if err := event.Validate(); err != nil {
 		status = "validation_error"
+		tracing.RecordError(ctx, err)
 		log.Printf("Event validation failed: %v", err)
 		http.Error(w, fmt.Sprintf("Validation error: %v", err), http.StatusBadRequest)
 		return
 	}
+
+	tracing.AddSpanEvent(ctx, "event.validated")
 
 	// Rate limiting per client_id
 	// Requirement: 8.3 - Rate limiting per client_id in ingest API
@@ -311,6 +344,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	if !limiter.Allow() {
 		status = "rate_limited"
 		ingestRateLimitHits.WithLabelValues(clientIDHash).Inc()
+		tracing.AddSpanEvent(ctx, "rate_limit.exceeded", attribute.String("client_id_hash", clientIDHash))
 		log.Printf("Rate limit exceeded for client %s", event.ClientID)
 		http.Error(w, "Rate limit exceeded. Please slow down your requests.", http.StatusTooManyRequests)
 		return
@@ -318,12 +352,15 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 
 	// Publish event to NATS JetStream
 	// Requirement: 10.3 - Event publishing to NATS JetStream
+	tracing.AddSpanEvent(ctx, "queue.publish.start")
 	if err := api.processor.PublishEvent(&event); err != nil {
 		status = "publish_error"
+		tracing.RecordError(ctx, err)
 		log.Printf("Failed to publish event %s: %v", event.EventID, err)
 		http.Error(w, "Failed to publish event", http.StatusInternalServerError)
 		return
 	}
+	tracing.AddSpanEvent(ctx, "queue.publish.success")
 
 	// Track successful events per client
 	ingestEventsPerClient.WithLabelValues(clientIDHash).Inc()
@@ -357,6 +394,22 @@ func main() {
 	log.Printf("NATS URL: %s", *natsURL)
 	log.Printf("Rate limit: %d req/s per client (burst: %d)", *rateLimit, *rateLimitBurst)
 
+	// Initialize OpenTelemetry tracing
+	// Requirement: 6.4 - Distributed tracing setup
+	tracingConfig := tracing.DefaultConfig("ingest-api")
+	tracingConfig.OTLPEndpoint = *otlpEndpoint
+	tracingConfig.Enabled = *tracingEnabled
+
+	shutdownTracing, err := tracing.InitTracer(tracingConfig)
+	if err != nil {
+		log.Fatalf("Failed to initialize tracing: %v", err)
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			log.Printf("Error shutting down tracing: %v", err)
+		}
+	}()
+
 	// Parse API tokens
 	var tokens []string
 	if *apiTokens != "" {
@@ -388,17 +441,40 @@ func main() {
 	// Create ingest API with rate limiting
 	api := NewIngestAPI(processor, tokens, *rateLimit, *rateLimitBurst)
 
-	// Set up HTTP routes
-	http.HandleFunc("/health", api.handleHealth)
-	http.HandleFunc("/events", api.authMiddleware(api.handleIngestEvent))
+	// Set up HTTP routes with OpenTelemetry instrumentation
+	// Requirement: 6.4 - HTTP request tracing with context propagation
+	http.Handle("/health", otelhttp.NewHandler(http.HandlerFunc(api.handleHealth), "health"))
+	http.Handle("/events", otelhttp.NewHandler(http.HandlerFunc(api.authMiddleware(api.handleIngestEvent)), "ingest.events"))
 	http.Handle("/metrics", promhttp.Handler())
 
 	// Start HTTP server
-	addr := ":" + *port
-	log.Printf("Ingest API listening on %s", addr)
+	server := &http.Server{
+		Addr:    ":" + *port,
+		Handler: nil,
+	}
+
+	log.Printf("Ingest API listening on %s", server.Addr)
 	log.Printf("Metrics available at http://localhost:%s/metrics", *port)
 
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	// Handle graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	<-sigCh
+	log.Printf("Shutting down ingest API...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
 	}
+
+	log.Printf("Ingest API stopped")
 }

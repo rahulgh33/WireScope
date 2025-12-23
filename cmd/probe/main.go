@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,23 +11,28 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/network-qoe-telemetry-platform/internal/models"
 	"github.com/network-qoe-telemetry-platform/internal/probe"
+	"github.com/network-qoe-telemetry-platform/internal/tracing"
 )
 
 var (
-	target        = flag.String("target", "https://example.com", "Target URL to measure")
-	throughputURL = flag.String("throughput-url", "", "URL for throughput testing (defaults to target/fixed/1mb.bin)")
-	interval      = flag.Duration("interval", 60*time.Second, "Measurement interval")
-	ingestURL     = flag.String("ingest-url", "http://localhost:8080/events", "Ingest API URL")
-	apiToken      = flag.String("api-token", "", "API token for authentication")
-	once          = flag.Bool("once", false, "Run once and exit")
-	interfaceType = flag.String("interface", "ethernet", "Network interface type (wifi, ethernet, cellular)")
-	vpnEnabled    = flag.Bool("vpn", false, "Whether VPN is enabled")
-	userLabel     = flag.String("label", "", "Optional user-defined label")
-	schemaVersion = flag.String("schema", "1.0", "Event schema version")
-	queueSize     = flag.Int("queue-size", 100, "Maximum number of events to buffer")
-	maxBackoff    = flag.Duration("max-backoff", 60*time.Second, "Maximum backoff duration for retries")
+	target         = flag.String("target", "https://example.com", "Target URL to measure")
+	throughputURL  = flag.String("throughput-url", "", "URL for throughput testing (defaults to target/fixed/1mb.bin)")
+	interval       = flag.Duration("interval", 60*time.Second, "Measurement interval")
+	ingestURL      = flag.String("ingest-url", "http://localhost:8080/events", "Ingest API URL")
+	apiToken       = flag.String("api-token", "", "API token for authentication")
+	once           = flag.Bool("once", false, "Run once and exit")
+	interfaceType  = flag.String("interface", "ethernet", "Network interface type (wifi, ethernet, cellular)")
+	vpnEnabled     = flag.Bool("vpn", false, "Whether VPN is enabled")
+	userLabel      = flag.String("label", "", "Optional user-defined label")
+	schemaVersion  = flag.String("schema", "1.0", "Event schema version")
+	queueSize      = flag.Int("queue-size", 100, "Maximum number of events to buffer")
+	maxBackoff     = flag.Duration("max-backoff", 60*time.Second, "Maximum backoff duration for retries")
+	otlpEndpoint   = flag.String("otlp-endpoint", "localhost:4318", "OpenTelemetry OTLP HTTP endpoint")
+	tracingEnabled = flag.Bool("tracing-enabled", true, "Enable distributed tracing")
 )
 
 // EventQueue implements a bounded queue with exponential backoff
@@ -63,6 +69,22 @@ func (q *EventQueue) DroppedCount() int {
 
 func main() {
 	flag.Parse()
+
+	// Initialize OpenTelemetry tracing
+	// Requirement: 6.4 - Distributed tracing setup for probe
+	tracingConfig := tracing.DefaultConfig("probe")
+	tracingConfig.OTLPEndpoint = *otlpEndpoint
+	tracingConfig.Enabled = *tracingEnabled
+
+	shutdownTracing, err := tracing.InitTracer(tracingConfig)
+	if err != nil {
+		log.Fatalf("Failed to initialize tracing: %v", err)
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			log.Printf("Error shutting down tracing: %v", err)
+		}
+	}()
 
 	// Get or create stable client ID
 	clientID, err := probe.GetOrCreateClientID()
@@ -111,9 +133,24 @@ func main() {
 }
 
 func performMeasurement(clientID, targetURL, throughputURL string) *models.TelemetryEvent {
+	// Create trace span for measurement
+	// Requirement: 6.4 - Probe measurement tracing
+	tracer := tracing.GetTracer("probe")
+	ctx, span := tracer.Start(context.Background(), "probe.measure")
+	defer span.End()
+
+	// Add measurement attributes to span
+	// Requirement: 6.5 - Span attributes for network operations
+	span.SetAttributes(
+		attribute.String("client.id", clientID),
+		attribute.String("target.url", targetURL),
+		attribute.String("throughput.url", throughputURL),
+	)
+
 	log.Printf("Performing measurement for %s", targetURL)
 
 	// Perform the measurement
+	tracing.AddSpanEvent(ctx, "measurement.start")
 	measurement, err := probe.MeasureTargetWithThroughput(targetURL, throughputURL)
 
 	// Create telemetry event
@@ -136,8 +173,10 @@ func performMeasurement(clientID, targetURL, throughputURL string) *models.Telem
 
 	if err != nil {
 		// Measurement had an error
+		tracing.RecordError(ctx, err)
 		if measurement != nil && measurement.ErrorStage != nil {
 			event.ErrorStage = measurement.ErrorStage
+			tracing.AddSpanAttributes(ctx, attribute.String("error.stage", *measurement.ErrorStage))
 			// Still include partial timing data
 			event.Timings = models.TimingMeasurements{
 				DNSMs:      measurement.DNSMs,
@@ -150,10 +189,12 @@ func performMeasurement(clientID, targetURL, throughputURL string) *models.Telem
 			// Complete failure - set generic error
 			errorStage := "unknown"
 			event.ErrorStage = &errorStage
+			tracing.AddSpanAttributes(ctx, attribute.String("error.stage", "unknown"))
 		}
 		log.Printf("Measurement error: %v", err)
 	} else {
 		// Successful measurement
+		tracing.AddSpanEvent(ctx, "measurement.success")
 		event.Timings = models.TimingMeasurements{
 			DNSMs:      measurement.DNSMs,
 			TCPMs:      measurement.TCPMs,
@@ -161,6 +202,16 @@ func performMeasurement(clientID, targetURL, throughputURL string) *models.Telem
 			HTTPTTFBMs: measurement.HTTPTTFBMs,
 		}
 		event.ThroughputKbps = measurement.ThroughputKbps
+
+		// Add timing attributes to span
+		// Requirement: 6.5 - Network operation details in spans
+		span.SetAttributes(
+			attribute.Float64("timing.dns_ms", measurement.DNSMs),
+			attribute.Float64("timing.tcp_ms", measurement.TCPMs),
+			attribute.Float64("timing.tls_ms", measurement.TLSMs),
+			attribute.Float64("timing.ttfb_ms", measurement.HTTPTTFBMs),
+			attribute.Float64("throughput.kbps", measurement.ThroughputKbps),
+		)
 	}
 
 	return event
