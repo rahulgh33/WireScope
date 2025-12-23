@@ -18,15 +18,16 @@ import (
 )
 
 var (
-	natsURL      = flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
-	dbHost       = flag.String("db-host", "localhost", "PostgreSQL host")
-	dbPort       = flag.Int("db-port", 5432, "PostgreSQL port")
-	dbName       = flag.String("db-name", "telemetry", "PostgreSQL database name")
-	dbUser       = flag.String("db-user", "postgres", "PostgreSQL user")
-	dbPassword   = flag.String("db-password", "postgres", "PostgreSQL password")
-	windowSize   = flag.Duration("window-size", 60*time.Second, "Aggregation window size")
-	flushDelay   = flag.Duration("flush-delay", 10*time.Second, "Delay before flushing closed windows")
-	consumerName = flag.String("consumer-name", "aggregator-1", "Unique consumer name for this instance")
+	natsURL       = flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
+	dbHost        = flag.String("db-host", "localhost", "PostgreSQL host")
+	dbPort        = flag.Int("db-port", 5432, "PostgreSQL port")
+	dbName        = flag.String("db-name", "telemetry", "PostgreSQL database name")
+	dbUser        = flag.String("db-user", "postgres", "PostgreSQL user")
+	dbPassword    = flag.String("db-password", "postgres", "PostgreSQL password")
+	windowSize    = flag.Duration("window-size", 60*time.Second, "Aggregation window size")
+	flushDelay    = flag.Duration("flush-delay", 10*time.Second, "Delay before flushing closed windows")
+	lateTolerance = flag.Duration("late-tolerance", 2*time.Minute, "Tolerance for late event handling")
+	consumerName  = flag.String("consumer-name", "aggregator-1", "Unique consumer name for this instance")
 )
 
 // Aggregator consumes events from NATS and produces windowed aggregates
@@ -39,8 +40,13 @@ type Aggregator struct {
 	aggregators      map[string]*models.InMemoryAggregator
 	windowStartTimes map[int64]bool
 
-	windowSize time.Duration
-	flushDelay time.Duration
+	windowSize       time.Duration
+	flushDelay       time.Duration
+	lateTolerance    time.Duration // Tolerance for late events
+
+	// Metrics
+	lateEventCount    int64
+	droppedEventCount int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -50,7 +56,7 @@ func NewAggregator(
 	processor models.EventProcessor,
 	eventsSeenRepo *database.EventsSeenRepository,
 	aggregatesRepo *database.AggregatesRepository,
-	windowSize, flushDelay time.Duration,
+	windowSize, flushDelay, lateTolerance time.Duration,
 ) *Aggregator {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -62,6 +68,7 @@ func NewAggregator(
 		windowStartTimes: make(map[int64]bool),
 		windowSize:       windowSize,
 		flushDelay:       flushDelay,
+		lateTolerance:    lateTolerance,
 		ctx:              ctx,
 		cancel:           cancel,
 	}
@@ -77,6 +84,7 @@ func (a *Aggregator) Start() error {
 
 func (a *Aggregator) Stop() {
 	log.Printf("Stopping aggregator...")
+	log.Printf("Metrics: late_events=%d, dropped_events=%d", a.lateEventCount, a.droppedEventCount)
 	a.cancel()
 
 	a.flushAllWindows()
@@ -100,6 +108,20 @@ func (a *Aggregator) handleEvent(event *models.TelemetryEvent) error {
 
 func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 	ctx := context.Background()
+
+	// Check if event is too late (processing time > recv_ts_ms + tolerance)
+	// Requirement: 3.4 - Late event handling with 2-minute tolerance
+	if event.RecvTimestampMs != nil && *event.RecvTimestampMs > 0 {
+		processingTime := time.Now().UnixMilli()
+		latencyMs := processingTime - *event.RecvTimestampMs
+		
+		if latencyMs > a.lateTolerance.Milliseconds() {
+			a.lateEventCount++
+			log.Printf("Late event detected: %s (latency: %dms > %dms tolerance)",
+				event.EventID, latencyMs, a.lateTolerance.Milliseconds())
+			// Continue processing late events, just log them for monitoring
+		}
+	}
 
 	return a.eventsSeenRepo.WithTransaction(ctx, func(tx *sql.Tx) error {
 		isNew, err := a.eventsSeenRepo.InsertEventSeen(ctx, event.EventID, event.ClientID, event.TimestampMs)
@@ -314,6 +336,7 @@ func main() {
 		aggregatesRepo,
 		*windowSize,
 		*flushDelay,
+		*lateTolerance,
 	)
 
 	sigCh := make(chan os.Signal, 1)

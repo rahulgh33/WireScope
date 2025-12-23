@@ -91,7 +91,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
 
 ### Milestone B: Correctness & Reliability
 
-- [ ] 11. Add late event handling and DLQ republish logic
+- [x] 11. Add late event handling and DLQ republish logic
   - Implement late event handling with 2-minute tolerance based on processing time
   - Add DLQ republish logic on final delivery attempt failure
   - Create poison message handling with max delivery checks

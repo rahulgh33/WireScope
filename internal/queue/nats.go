@@ -372,3 +372,125 @@ func (p *NATSEventProcessor) GetConsumerInfo() (*jetstream.ConsumerInfo, error) 
 
 	return p.consumer.Info(p.ctx)
 }
+
+// RepublishFromDLQ republishes a message from the DLQ back to the main stream
+//
+// Requirement: 8.4 - DLQ republish logic for manual replay
+func (p *NATSEventProcessor) RepublishFromDLQ(dlqMessageID string) error {
+	if !p.config.EnableDLQ {
+		return fmt.Errorf("DLQ is not enabled")
+	}
+
+	// Get the DLQ stream
+	stream, err := p.js.Stream(p.ctx, StreamNameDLQ)
+	if err != nil {
+		return fmt.Errorf("failed to get DLQ stream: %w", err)
+	}
+
+	// Create a temporary consumer to read from DLQ
+	consumerConfig := jetstream.ConsumerConfig{
+		FilterSubject: SubjectDLQ,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	}
+
+	consumer, err := stream.CreateConsumer(p.ctx, consumerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create DLQ consumer: %w", err)
+	}
+
+	// Fetch messages and find the one to republish
+	var found bool
+	msgBatch, err := consumer.Fetch(100) // Fetch up to 100 messages
+	if err != nil {
+		return fmt.Errorf("failed to fetch from DLQ: %w", err)
+	}
+
+	for msg := range msgBatch.Messages() {
+		// Parse DLQ message
+		var dlqMsg map[string]interface{}
+		if err := json.Unmarshal(msg.Data(), &dlqMsg); err != nil {
+			msg.Ack()
+			continue
+		}
+
+		// Extract original data
+		originalData, ok := dlqMsg["original_data"].(string)
+		if !ok {
+			msg.Ack()
+			continue
+		}
+
+		// Parse original event to get event ID
+		var event models.TelemetryEvent
+		if err := json.Unmarshal([]byte(originalData), &event); err != nil {
+			msg.Ack()
+			continue
+		}
+
+		// Check if this is the message we want to republish
+		if event.EventID == dlqMessageID {
+			// Republish to main stream
+			_, err := p.js.Publish(p.ctx, SubjectEvents, []byte(originalData))
+			if err != nil {
+				return fmt.Errorf("failed to republish event: %w", err)
+			}
+
+			// Acknowledge the DLQ message
+			msg.Ack()
+			found = true
+			log.Printf("Successfully republished event %s from DLQ", event.EventID)
+			break
+		}
+
+		msg.Ack()
+	}
+
+	if !found {
+		return fmt.Errorf("message with ID %s not found in DLQ", dlqMessageID)
+	}
+
+	return nil
+}
+
+// ListDLQMessages returns a list of messages currently in the DLQ
+//
+// Requirement: 8.4 - DLQ inspection for operational visibility
+func (p *NATSEventProcessor) ListDLQMessages(limit int) ([]map[string]interface{}, error) {
+	if !p.config.EnableDLQ {
+		return nil, fmt.Errorf("DLQ is not enabled")
+	}
+
+	// Get the DLQ stream
+	stream, err := p.js.Stream(p.ctx, StreamNameDLQ)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DLQ stream: %w", err)
+	}
+
+	// Create a temporary consumer
+	consumerConfig := jetstream.ConsumerConfig{
+		FilterSubject: SubjectDLQ,
+		AckPolicy:     jetstream.AckNonePolicy, // Don't require ack for listing
+	}
+
+	consumer, err := stream.CreateConsumer(p.ctx, consumerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create DLQ consumer: %w", err)
+	}
+
+	// Fetch messages
+	msgBatch, err := consumer.Fetch(limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch from DLQ: %w", err)
+	}
+
+	var messages []map[string]interface{}
+	for msg := range msgBatch.Messages() {
+		var dlqMsg map[string]interface{}
+		if err := json.Unmarshal(msg.Data(), &dlqMsg); err != nil {
+			continue
+		}
+		messages = append(messages, dlqMsg)
+	}
+
+	return messages, nil
+}
