@@ -34,27 +34,27 @@ const (
 
 // NATSConfig holds configuration for NATS JetStream connection
 type NATSConfig struct {
-	URL               string
-	StreamRetention   time.Duration
-	MaxDeliver        int
-	AckWait           time.Duration
-	MaxAckPending     int
-	EnableDLQ         bool
-	ReconnectWait     time.Duration
-	MaxReconnects     int
+	URL             string
+	StreamRetention time.Duration
+	MaxDeliver      int
+	AckWait         time.Duration
+	MaxAckPending   int
+	EnableDLQ       bool
+	ReconnectWait   time.Duration
+	MaxReconnects   int
 }
 
 // DefaultNATSConfig returns a NATSConfig with sensible defaults
 func DefaultNATSConfig() *NATSConfig {
 	return &NATSConfig{
-		URL:               nats.DefaultURL,
-		StreamRetention:   DefaultStreamRetention,
-		MaxDeliver:        DefaultMaxDeliver,
-		AckWait:           DefaultAckWait,
-		MaxAckPending:     DefaultMaxAckPending,
-		EnableDLQ:         true,
-		ReconnectWait:     2 * time.Second,
-		MaxReconnects:     -1, // Unlimited reconnects
+		URL:             nats.DefaultURL,
+		StreamRetention: DefaultStreamRetention,
+		MaxDeliver:      DefaultMaxDeliver,
+		AckWait:         DefaultAckWait,
+		MaxAckPending:   DefaultMaxAckPending,
+		EnableDLQ:       true,
+		ReconnectWait:   2 * time.Second,
+		MaxReconnects:   -1, // Unlimited reconnects
 	}
 }
 
