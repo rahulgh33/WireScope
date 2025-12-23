@@ -171,6 +171,15 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Create database failure simulation with transaction retry behavior
   - _Requirements: 8.1, 8.5_
 
+- [ ] 20.1 Multi-machine deployment testing
+  - Create Docker Compose configuration for distributed deployment (separate machines for probe, ingest, aggregator, NATS, PostgreSQL)
+  - Test network connectivity and service discovery across machines
+  - Validate end-to-end data flow with components on different hosts
+  - Document firewall rules and port requirements
+  - Create deployment guide for multi-host setup
+  - Test failure scenarios: network partitions, single component failure, recovery
+  - _Requirements: Production deployment validation_
+
 - [ ] 21. Add database maintenance and retention
   - Implement daily cleanup job for events_seen table (delete >7 days)
   - Create weekly partition cleanup for agg_1m table (remove >90 days)
@@ -388,14 +397,24 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Build client SDKs (Python, JavaScript, Go)
   - _Requirements: Enterprise ecosystem_
 
-- [ ] 46. Add advanced deployment features
-  - Implement horizontal scaling for aggregators
-  - Add load balancing for ingest API
-  - Create distributed caching layer
-  - Implement backup and disaster recovery
-  - Add cross-region replication
-  - Create performance tuning guides
-  - _Requirements: Scalability_
+- [ ] 46. Add horizontal scaling and high availability
+  - Implement horizontal scaling for aggregators (multiple instances consuming from NATS with consumer groups)
+    - Benefit: Increased throughput for high event rates (>10k events/sec)
+    - Benefit: Fault tolerance - other aggregators continue if one fails
+    - Trade-off: Requires proper NATS consumer group configuration
+  - Add horizontal scaling for ingest API (multiple instances behind load balancer)
+    - Benefit: Higher API request capacity and redundancy
+    - Benefit: Zero-downtime deployments with rolling updates
+  - Evaluate probe scaling needs
+    - Note: Probes are typically distributed by nature (one per monitored location)
+    - Consider: Central probe orchestration if managing hundreds of probes
+  - Implement load balancing for ingest API (nginx/HAProxy/cloud LB)
+  - Create distributed caching layer (Redis) for rate limiting across ingest instances
+  - Implement backup and disaster recovery procedures
+  - Add cross-region replication strategy for global deployments
+  - Create performance tuning guides for scaled deployments
+  - Document when to scale each component based on metrics
+  - _Requirements: Scalability for high-volume deployments_
 
 - [ ] 47. Create comprehensive documentation
   - Write architecture documentation with diagrams
