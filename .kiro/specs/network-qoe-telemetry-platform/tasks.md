@@ -103,7 +103,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Create in-flight message limits in aggregator with proper acknowledgment
   - _Requirements: 8.2, 8.3, 8.4_
 
-- [ ] 13. Property testing hardening pass
+- [x] 13. Property testing hardening pass
   - Write integration property test for exactly-once aggregate effects via dedup
   - Create property test for transactional consistency (aggregator only ACKs after DB commit)
   - Add property test for late event handling with explicit time reference

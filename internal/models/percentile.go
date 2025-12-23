@@ -36,11 +36,11 @@ func calculatePercentile(data []float64, percentile float64) float64 {
 	// For P50 with 2 samples: 0.5 * (2-1) = 0.5 → interpolate between index 0 and 1
 	// For P95 with 2 samples: 0.95 * (2-1) = 0.95 → interpolate between index 0 and 1
 	position := (percentile / 100.0) * float64(len(sorted)-1)
-	
+
 	// Get the lower and upper indices
 	lowerIndex := int(position)
 	upperIndex := lowerIndex + 1
-	
+
 	// Handle edge cases
 	if lowerIndex < 0 {
 		lowerIndex = 0
@@ -48,7 +48,7 @@ func calculatePercentile(data []float64, percentile float64) float64 {
 	if upperIndex >= len(sorted) {
 		return sorted[len(sorted)-1]
 	}
-	
+
 	// Linear interpolation
 	fraction := position - float64(lowerIndex)
 	return sorted[lowerIndex] + fraction*(sorted[upperIndex]-sorted[lowerIndex])
