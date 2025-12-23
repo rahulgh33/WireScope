@@ -25,7 +25,41 @@ var (
 	vpnEnabled    = flag.Bool("vpn", false, "Whether VPN is enabled")
 	userLabel     = flag.String("label", "", "Optional user-defined label")
 	schemaVersion = flag.String("schema", "1.0", "Event schema version")
+	queueSize     = flag.Int("queue-size", 100, "Maximum number of events to buffer")
+	maxBackoff    = flag.Duration("max-backoff", 60*time.Second, "Maximum backoff duration for retries")
 )
+
+// EventQueue implements a bounded queue with exponential backoff
+// Requirement: 8.2 - Backpressure with bounded local queue
+type EventQueue struct {
+	queue      chan *models.TelemetryEvent
+	droppedCnt int
+}
+
+func NewEventQueue(size int) *EventQueue {
+	return &EventQueue{
+		queue: make(chan *models.TelemetryEvent, size),
+	}
+}
+
+func (q *EventQueue) Enqueue(event *models.TelemetryEvent) bool {
+	select {
+	case q.queue <- event:
+		return true
+	default:
+		q.droppedCnt++
+		log.Printf("Event queue full, dropping event %s (total dropped: %d)", event.EventID, q.droppedCnt)
+		return false
+	}
+}
+
+func (q *EventQueue) Dequeue() *models.TelemetryEvent {
+	return <-q.queue
+}
+
+func (q *EventQueue) DroppedCount() int {
+	return q.droppedCnt
+}
 
 func main() {
 	flag.Parse()
@@ -40,6 +74,7 @@ func main() {
 	log.Printf("Client ID: %s", clientID)
 	log.Printf("Target: %s", *target)
 	log.Printf("Interval: %v", *interval)
+	log.Printf("Queue size: %d", *queueSize)
 
 	// Set throughput URL if not specified
 	throughputEndpoint := *throughputURL
@@ -47,23 +82,27 @@ func main() {
 		throughputEndpoint = *target + "/fixed/1mb.bin"
 	}
 
+	// Create event queue
+	eventQueue := NewEventQueue(*queueSize)
+
+	// Start worker goroutine to send events with exponential backoff
+	if *ingestURL != "" && *apiToken != "" {
+		go eventSender(eventQueue, *ingestURL, *apiToken, *maxBackoff)
+	}
+
 	// Run measurement loop
 	for {
 		event := performMeasurement(clientID, *target, throughputEndpoint)
 
-		// Send to ingest API if configured
+		// Enqueue event for sending
 		if *ingestURL != "" && *apiToken != "" {
-			if err := sendEventToIngest(event, *ingestURL, *apiToken); err != nil {
-				log.Printf("Failed to send event to ingest API: %v", err)
-			} else {
-				log.Printf("Successfully sent event %s to ingest API", event.EventID)
-			}
+			eventQueue.Enqueue(event)
 		}
 
-		// TODO: Send to ingest API when implemented
-		// For now, just log the measurement
-
 		if *once {
+			// Wait a bit for the event to be sent before exiting
+			time.Sleep(2 * time.Second)
+			log.Printf("Total dropped events: %d", eventQueue.DroppedCount())
 			break
 		}
 
@@ -150,6 +189,32 @@ func printMeasurement(event *models.TelemetryEvent) {
 	}
 
 	fmt.Println("─────────────────────────────────────────────")
+}
+
+// eventSender processes events from the queue with exponential backoff
+// Requirement: 8.2 - Exponential backoff for retry
+func eventSender(queue *EventQueue, ingestURL, apiToken string, maxBackoff time.Duration) {
+	for {
+		event := queue.Dequeue()
+
+		backoff := 1 * time.Second
+		for {
+			err := sendEventToIngest(event, ingestURL, apiToken)
+			if err == nil {
+				log.Printf("Successfully sent event %s to ingest API", event.EventID)
+				break // Success, move to next event
+			}
+
+			log.Printf("Failed to send event %s: %v, retrying in %v", event.EventID, err, backoff)
+			time.Sleep(backoff)
+
+			// Exponential backoff with max limit
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
 }
 
 func sendEventToIngest(event *models.TelemetryEvent, ingestURL, apiToken string) error {

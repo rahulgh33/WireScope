@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/network-qoe-telemetry-platform/internal/models"
@@ -15,19 +16,67 @@ import (
 )
 
 var (
-	port      = flag.String("port", "8080", "HTTP server port")
-	natsURL   = flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
-	apiTokens = flag.String("api-tokens", "", "Comma-separated list of valid API tokens")
+	port           = flag.String("port", "8080", "HTTP server port")
+	natsURL        = flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
+	apiTokens      = flag.String("api-tokens", "", "Comma-separated list of valid API tokens")
+	rateLimit      = flag.Int("rate-limit", 100, "Maximum requests per client per second")
+	rateLimitBurst = flag.Int("rate-limit-burst", 20, "Maximum burst size for rate limiting")
 )
+
+// TokenBucket implements a simple token bucket rate limiter
+// Requirement: 8.3 - Rate limiting per client_id
+type TokenBucket struct {
+	tokens     float64
+	maxTokens  float64
+	refillRate float64 // tokens per second
+	lastRefill time.Time
+	mu         sync.Mutex
+}
+
+func NewTokenBucket(rate, burst int) *TokenBucket {
+	return &TokenBucket{
+		tokens:     float64(burst),
+		maxTokens:  float64(burst),
+		refillRate: float64(rate),
+		lastRefill: time.Now(),
+	}
+}
+
+func (tb *TokenBucket) Allow() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	now := time.Now()
+	elapsed := now.Sub(tb.lastRefill).Seconds()
+
+	// Refill tokens based on elapsed time
+	tb.tokens = tb.tokens + (elapsed * tb.refillRate)
+	if tb.tokens > tb.maxTokens {
+		tb.tokens = tb.maxTokens
+	}
+	tb.lastRefill = now
+
+	// Check if we have tokens available
+	if tb.tokens >= 1.0 {
+		tb.tokens -= 1.0
+		return true
+	}
+
+	return false
+}
 
 // IngestAPI handles HTTP requests for telemetry event ingestion
 type IngestAPI struct {
-	processor   models.EventProcessor
-	validTokens map[string]bool
+	processor    models.EventProcessor
+	validTokens  map[string]bool
+	rateLimiters map[string]*TokenBucket
+	limiterMu    sync.RWMutex
+	rateLimit    int
+	rateBurst    int
 }
 
 // NewIngestAPI creates a new ingest API server
-func NewIngestAPI(processor models.EventProcessor, tokens []string) *IngestAPI {
+func NewIngestAPI(processor models.EventProcessor, tokens []string, rateLimit, rateBurst int) *IngestAPI {
 	validTokens := make(map[string]bool)
 	for _, token := range tokens {
 		if token != "" {
@@ -36,9 +85,36 @@ func NewIngestAPI(processor models.EventProcessor, tokens []string) *IngestAPI {
 	}
 
 	return &IngestAPI{
-		processor:   processor,
-		validTokens: validTokens,
+		processor:    processor,
+		validTokens:  validTokens,
+		rateLimiters: make(map[string]*TokenBucket),
+		rateLimit:    rateLimit,
+		rateBurst:    rateBurst,
 	}
+}
+
+// getRateLimiter returns or creates a rate limiter for a client
+func (api *IngestAPI) getRateLimiter(clientID string) *TokenBucket {
+	api.limiterMu.RLock()
+	limiter, exists := api.rateLimiters[clientID]
+	api.limiterMu.RUnlock()
+
+	if exists {
+		return limiter
+	}
+
+	// Create new limiter
+	api.limiterMu.Lock()
+	defer api.limiterMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if limiter, exists := api.rateLimiters[clientID]; exists {
+		return limiter
+	}
+
+	limiter = NewTokenBucket(api.rateLimit, api.rateBurst)
+	api.rateLimiters[clientID] = limiter
+	return limiter
 }
 
 // authMiddleware validates API tokens
@@ -123,6 +199,15 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Rate limiting per client_id
+	// Requirement: 8.3 - Rate limiting per client_id in ingest API
+	limiter := api.getRateLimiter(event.ClientID)
+	if !limiter.Allow() {
+		log.Printf("Rate limit exceeded for client %s", event.ClientID)
+		http.Error(w, "Rate limit exceeded. Please slow down your requests.", http.StatusTooManyRequests)
+		return
+	}
+
 	// Publish event to NATS JetStream
 	// Requirement: 10.3 - Event publishing to NATS JetStream
 	if err := api.processor.PublishEvent(&event); err != nil {
@@ -158,6 +243,7 @@ func main() {
 	log.Printf("Starting Network QoE Ingest API")
 	log.Printf("Port: %s", *port)
 	log.Printf("NATS URL: %s", *natsURL)
+	log.Printf("Rate limit: %d req/s per client (burst: %d)", *rateLimit, *rateLimitBurst)
 
 	// Parse API tokens
 	var tokens []string
@@ -187,8 +273,8 @@ func main() {
 
 	log.Printf("Connected to NATS at %s", *natsURL)
 
-	// Create ingest API
-	api := NewIngestAPI(processor, tokens)
+	// Create ingest API with rate limiting
+	api := NewIngestAPI(processor, tokens, *rateLimit, *rateLimitBurst)
 
 	// Set up HTTP routes
 	http.HandleFunc("/health", api.handleHealth)

@@ -40,9 +40,9 @@ type Aggregator struct {
 	aggregators      map[string]*models.InMemoryAggregator
 	windowStartTimes map[int64]bool
 
-	windowSize       time.Duration
-	flushDelay       time.Duration
-	lateTolerance    time.Duration // Tolerance for late events
+	windowSize    time.Duration
+	flushDelay    time.Duration
+	lateTolerance time.Duration // Tolerance for late events
 
 	// Metrics
 	lateEventCount    int64
@@ -114,7 +114,7 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 	if event.RecvTimestampMs != nil && *event.RecvTimestampMs > 0 {
 		processingTime := time.Now().UnixMilli()
 		latencyMs := processingTime - *event.RecvTimestampMs
-		
+
 		if latencyMs > a.lateTolerance.Milliseconds() {
 			a.lateEventCount++
 			log.Printf("Late event detected: %s (latency: %dms > %dms tolerance)",

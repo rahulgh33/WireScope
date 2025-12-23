@@ -97,7 +97,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Create poison message handling with max delivery checks
   - _Requirements: 3.4, 8.4_
 
-- [ ] 12. Implement backpressure mechanisms
+- [x] 12. Implement backpressure mechanisms
   - Add bounded local queue in probe with exponential backoff
   - Implement rate limiting per client_id in ingest API (simple in-memory token bucket)
   - Create in-flight message limits in aggregator with proper acknowledgment
