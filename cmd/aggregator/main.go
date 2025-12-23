@@ -6,11 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/network-qoe-telemetry-platform/internal/database"
 	"github.com/network-qoe-telemetry-platform/internal/models"
@@ -28,7 +32,49 @@ var (
 	flushDelay    = flag.Duration("flush-delay", 10*time.Second, "Delay before flushing closed windows")
 	lateTolerance = flag.Duration("late-tolerance", 2*time.Minute, "Tolerance for late event handling")
 	consumerName  = flag.String("consumer-name", "aggregator-1", "Unique consumer name for this instance")
+	metricsPort   = flag.String("metrics-port", "9090", "Prometheus metrics port")
 )
+
+// Prometheus metrics
+// Requirements: 6.1, 6.2, 6.3
+var (
+	eventsProcessedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "events_processed_total",
+			Help: "Total number of events processed",
+		},
+		[]string{"status"}, // success, duplicate, error
+	)
+
+	processingDelaySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "processing_delay_seconds",
+			Help:    "End-to-end processing delay from event recv_ts_ms to aggregation completion",
+			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 120},
+		},
+	)
+
+	dedupRate = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "dedup_rate",
+			Help: "Ratio of duplicate events to total events received (rolling window)",
+		},
+	)
+
+	lateEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "late_events_total",
+			Help: "Total number of late events detected",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(eventsProcessedTotal)
+	prometheus.MustRegister(processingDelaySeconds)
+	prometheus.MustRegister(dedupRate)
+	prometheus.MustRegister(lateEventsTotal)
+}
 
 // Aggregator consumes events from NATS and produces windowed aggregates
 type Aggregator struct {
@@ -44,9 +90,9 @@ type Aggregator struct {
 	flushDelay    time.Duration
 	lateTolerance time.Duration // Tolerance for late events
 
-	// Metrics
-	lateEventCount    int64
-	droppedEventCount int64
+	// Dedup tracking for metrics
+	totalProcessed int64
+	duplicateCount int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -84,7 +130,6 @@ func (a *Aggregator) Start() error {
 
 func (a *Aggregator) Stop() {
 	log.Printf("Stopping aggregator...")
-	log.Printf("Metrics: late_events=%d, dropped_events=%d", a.lateEventCount, a.droppedEventCount)
 	a.cancel()
 
 	a.flushAllWindows()
@@ -109,6 +154,15 @@ func (a *Aggregator) handleEvent(event *models.TelemetryEvent) error {
 func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 	ctx := context.Background()
 
+	// Track processing delay if recv_ts_ms is available
+	if event.RecvTimestampMs != nil && *event.RecvTimestampMs > 0 {
+		defer func() {
+			// Calculate end-to-end delay from recv_ts_ms to now
+			delaySeconds := float64(time.Now().UnixMilli()-*event.RecvTimestampMs) / 1000.0
+			processingDelaySeconds.Observe(delaySeconds)
+		}()
+	}
+
 	// Check if event is too late (processing time > recv_ts_ms + tolerance)
 	// Requirement: 3.4 - Late event handling with 2-minute tolerance
 	if event.RecvTimestampMs != nil && *event.RecvTimestampMs > 0 {
@@ -116,18 +170,21 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 		latencyMs := processingTime - *event.RecvTimestampMs
 
 		if latencyMs > a.lateTolerance.Milliseconds() {
-			a.lateEventCount++
+			lateEventsTotal.Inc()
 			log.Printf("Late event detected: %s (latency: %dms > %dms tolerance)",
 				event.EventID, latencyMs, a.lateTolerance.Milliseconds())
 			// Continue processing late events, just log them for monitoring
 		}
 	}
 
-	return a.eventsSeenRepo.WithTransaction(ctx, func(tx *sql.Tx) error {
+	var isNewEvent bool
+	err := a.eventsSeenRepo.WithTransaction(ctx, func(tx *sql.Tx) error {
 		isNew, err := a.eventsSeenRepo.InsertEventSeen(ctx, event.EventID, event.ClientID, event.TimestampMs)
 		if err != nil {
 			return err
 		}
+
+		isNewEvent = isNew
 
 		if !isNew {
 			log.Printf("Duplicate event detected: %s (client: %s)", event.EventID, event.ClientID)
@@ -159,6 +216,29 @@ func (a *Aggregator) processEventWithDedup(event *models.TelemetryEvent) error {
 
 		return nil
 	})
+
+	// Update metrics after transaction completes
+	if err != nil {
+		eventsProcessedTotal.WithLabelValues("error").Inc()
+		return err
+	}
+
+	// Track total and duplicate counts for dedup rate calculation
+	a.totalProcessed++
+	if !isNewEvent {
+		a.duplicateCount++
+		eventsProcessedTotal.WithLabelValues("duplicate").Inc()
+
+		// Update dedup rate
+		if a.totalProcessed > 0 {
+			rate := float64(a.duplicateCount) / float64(a.totalProcessed)
+			dedupRate.Set(rate)
+		}
+	} else {
+		eventsProcessedTotal.WithLabelValues("success").Inc()
+	}
+
+	return nil
 }
 
 func (a *Aggregator) periodicWindowFlusher() {
@@ -338,6 +418,27 @@ func main() {
 		*flushDelay,
 		*lateTolerance,
 	)
+
+	// Start metrics server
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		addr := ":" + *metricsPort
+		log.Printf("Metrics server listening on %s", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
+
+	// Periodically update queue lag metrics
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := processor.UpdateQueueMetrics(); err != nil {
+				log.Printf("Failed to update queue metrics: %v", err)
+			}
+		}
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)

@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/network-qoe-telemetry-platform/internal/models"
 	"github.com/network-qoe-telemetry-platform/internal/queue"
 )
@@ -22,6 +25,32 @@ var (
 	rateLimit      = flag.Int("rate-limit", 100, "Maximum requests per client per second")
 	rateLimitBurst = flag.Int("rate-limit-burst", 20, "Maximum burst size for rate limiting")
 )
+
+// Prometheus metrics
+// Requirement: 6.1 - Ingest request rate and error rate metrics
+var (
+	ingestRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_requests_total",
+			Help: "Total number of ingest API requests",
+		},
+		[]string{"status"}, // success, validation_error, auth_error, rate_limited, publish_error
+	)
+
+	ingestRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingest_request_duration_seconds",
+			Help:    "Duration of ingest API requests",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"status"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(ingestRequestsTotal)
+	prometheus.MustRegister(ingestRequestDuration)
+}
 
 // TokenBucket implements a simple token bucket rate limiter
 // Requirement: 8.3 - Rate limiting per client_id
@@ -125,6 +154,7 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
+			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
 			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 			return
 		}
@@ -132,6 +162,7 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Check for Bearer token format
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
+			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
 			http.Error(w, "Invalid Authorization header format. Expected: Bearer <token>", http.StatusUnauthorized)
 			return
 		}
@@ -140,6 +171,7 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Validate token
 		if len(api.validTokens) > 0 && !api.validTokens[token] {
+			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
 			http.Error(w, "Invalid API token", http.StatusUnauthorized)
 			return
 		}
@@ -153,7 +185,16 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 //
 // Requirements: 10.2, 10.3, 10.4, 10.5
 func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	status := "success"
+	defer func() {
+		duration := time.Since(start).Seconds()
+		ingestRequestsTotal.WithLabelValues(status).Inc()
+		ingestRequestDuration.WithLabelValues(status).Observe(duration)
+	}()
+
 	if r.Method != http.MethodPost {
+		status = "method_not_allowed"
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -164,6 +205,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	decoder.DisallowUnknownFields() // Strict parsing for now
 
 	if err := decoder.Decode(&event); err != nil {
+		status = "validation_error"
 		log.Printf("Failed to decode event: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
@@ -177,6 +219,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	// Validate schema version
 	// Requirement: 10.2 - Request validation with schema version checking
 	if event.SchemaVersion == "" {
+		status = "validation_error"
 		http.Error(w, "Missing schema_version", http.StatusBadRequest)
 		return
 	}
@@ -194,6 +237,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 
 	// Validate event structure
 	if err := event.Validate(); err != nil {
+		status = "validation_error"
 		log.Printf("Event validation failed: %v", err)
 		http.Error(w, fmt.Sprintf("Validation error: %v", err), http.StatusBadRequest)
 		return
@@ -203,6 +247,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	// Requirement: 8.3 - Rate limiting per client_id in ingest API
 	limiter := api.getRateLimiter(event.ClientID)
 	if !limiter.Allow() {
+		status = "rate_limited"
 		log.Printf("Rate limit exceeded for client %s", event.ClientID)
 		http.Error(w, "Rate limit exceeded. Please slow down your requests.", http.StatusTooManyRequests)
 		return
@@ -211,6 +256,7 @@ func (api *IngestAPI) handleIngestEvent(w http.ResponseWriter, r *http.Request) 
 	// Publish event to NATS JetStream
 	// Requirement: 10.3 - Event publishing to NATS JetStream
 	if err := api.processor.PublishEvent(&event); err != nil {
+		status = "publish_error"
 		log.Printf("Failed to publish event %s: %v", event.EventID, err)
 		http.Error(w, "Failed to publish event", http.StatusInternalServerError)
 		return
@@ -279,10 +325,12 @@ func main() {
 	// Set up HTTP routes
 	http.HandleFunc("/health", api.handleHealth)
 	http.HandleFunc("/events", api.authMiddleware(api.handleIngestEvent))
+	http.Handle("/metrics", promhttp.Handler())
 
 	// Start HTTP server
 	addr := ":" + *port
 	log.Printf("Ingest API listening on %s", addr)
+	log.Printf("Metrics available at http://localhost:%s/metrics", *port)
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)

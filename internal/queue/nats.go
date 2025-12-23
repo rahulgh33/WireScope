@@ -121,6 +121,7 @@ func (p *NATSEventProcessor) connect() error {
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
 			log.Printf("NATS reconnected to %s", nc.ConnectedUrl())
+			natsReconnectsTotal.Inc()
 		}),
 		nats.ClosedHandler(func(nc *nats.Conn) {
 			log.Println("NATS connection closed")
@@ -330,6 +331,9 @@ func (p *NATSEventProcessor) sendToDLQ(data []byte, reason string) {
 		return
 	}
 
+	// Increment DLQ counter
+	dlqMessagesTotal.Inc()
+
 	// Create DLQ message with metadata
 	dlqMsg := map[string]interface{}{
 		"original_data": string(data),
@@ -493,4 +497,23 @@ func (p *NATSEventProcessor) ListDLQMessages(limit int) ([]map[string]interface{
 	}
 
 	return messages, nil
+}
+
+// UpdateQueueMetrics updates Prometheus metrics for queue status
+// This should be called periodically to monitor queue health
+//
+// Requirement: 6.2 - Queue lag monitoring
+func (p *NATSEventProcessor) UpdateQueueMetrics() error {
+	info, err := p.GetConsumerInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get consumer info: %w", err)
+	}
+
+	// Update queue lag (pending messages in stream)
+	queueLagMessages.Set(float64(info.NumPending))
+
+	// Update ack pending (messages delivered but not acknowledged)
+	queueAckPendingMessages.Set(float64(info.NumAckPending))
+
+	return nil
 }
