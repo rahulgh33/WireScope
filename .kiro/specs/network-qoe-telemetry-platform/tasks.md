@@ -111,7 +111,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Test percentile calculation correctness (scoped to ≤10k samples for exactness)
   - _Properties: 3, 4, 5, 6, 7_
 
-- [ ] 14. Add basic observability (core 6 metrics)
+- [x] 14. Add basic observability (core 6 metrics)
   - Implement ingest request rate and error rate metrics
   - Add queue lag monitoring
   - Create processing delay histogram (end-to-end latency)
