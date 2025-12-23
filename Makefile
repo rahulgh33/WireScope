@@ -5,9 +5,9 @@ help:
 	@echo "Network QoE Telemetry Platform"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  validate      - Validate the setup configuration
-  test-endpoints- Test all service endpoints
-  up          - Start all services with Docker Compose"
+	@echo "  validate      - Validate the setup configuration"
+	@echo "  test-endpoints- Test all service endpoints"
+	@echo "  up            - Start all services with Docker Compose"
 	@echo "  down        - Stop all services"
 	@echo "  build       - Build all Go binaries"
 	@echo "  test        - Run all tests"
@@ -15,6 +15,7 @@ help:
 	@echo "  migrate     - Run database migrations"
 	@echo "  migrate-up  - Apply all pending migrations"
 	@echo "  migrate-down- Rollback last migration"
+	@echo "  migrate-status - Check migration status"
 	@echo "  logs        - Show logs from all services"
 	@echo "  dev         - Start development environment"
 
@@ -61,11 +62,15 @@ migrate: migrate-up
 
 migrate-up:
 	@echo "Applying database migrations..."
-	migrate -path migrations -database "postgres://telemetry:telemetry@localhost:5432/telemetry?sslmode=disable" up
+	go run ./cmd/migrate -command=up
 
 migrate-down:
 	@echo "Rolling back last migration..."
-	migrate -path migrations -database "postgres://telemetry:telemetry@localhost:5432/telemetry?sslmode=disable" down 1
+	go run ./cmd/migrate -command=down
+
+migrate-status:
+	@echo "Checking migration status..."
+	go run ./cmd/migrate -command=status
 
 migrate-create:
 	@read -p "Enter migration name: " name; \

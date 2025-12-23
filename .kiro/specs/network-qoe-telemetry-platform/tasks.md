@@ -21,7 +21,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Initialize database migration system
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 9.1_
 
-- [ ] 2. Implement database schema and migrations
+- [x] 2. Implement database schema and migrations
   - Create initial migration for events_seen deduplication table with UUID primary key
   - Create migration for agg_1m aggregates table with composite primary key and quality counters
   - Add database indexes for query optimization (client_id, target, window_start_ts)
