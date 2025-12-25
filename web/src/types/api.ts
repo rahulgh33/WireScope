@@ -52,6 +52,7 @@ export interface ClientMetrics {
 
 export interface Client {
   id: string;
+  client_id: string; // Add client_id for compatibility
   name: string;
   status: 'active' | 'inactive' | 'warning';
   last_seen: string;

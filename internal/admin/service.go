@@ -8,24 +8,36 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/network-qoe-telemetry-platform/internal/auth"
 )
 
 // Service provides admin operations
 type Service struct {
 	// In a real implementation, this would connect to the database
 	// For now, we'll use in-memory storage for demonstration
-	probes   map[string]*ProbeConfig
-	tokens   map[string]*APIToken
-	users    map[string]*User
-	settings *SystemSettings
+	probes    map[string]*ProbeConfig
+	tokens    map[string]*APIToken
+	users     map[string]*User
+	settings  *SystemSettings
+	userStore auth.UserStore
+	config    *Config
 }
 
 // NewService creates a new admin service
-func NewService() *Service {
+func NewService(config *Config) *Service {
+	userStore := auth.NewInMemoryUserStore()
+	// Initialize default users from environment or defaults
+	if err := auth.InitializeDefaultUsers(userStore); err != nil {
+		// Log error but don't fail - users can be created via API
+		fmt.Printf("Warning: Failed to initialize default users: %v\n", err)
+	}
+
 	return &Service{
-		probes: make(map[string]*ProbeConfig),
-		tokens: make(map[string]*APIToken),
-		users:  make(map[string]*User),
+		probes:    make(map[string]*ProbeConfig),
+		tokens:    make(map[string]*APIToken),
+		users:     make(map[string]*User),
+		userStore: userStore,
+		config:    config,
 		settings: &SystemSettings{
 			EventsRetentionDays:     7,
 			AggregatesRetentionDays: 90,
@@ -53,6 +65,9 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 
 	// Register dashboard and data API routes
 	s.RegisterDashboardRoutes(router)
+
+	// Register user management routes
+	s.RegisterUserManagementRoutes(router)
 
 	adminRouter := router.PathPrefix("/api/v1/admin").Subrouter()
 

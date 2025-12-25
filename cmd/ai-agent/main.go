@@ -91,7 +91,12 @@ func (s *AIAgentServer) Start() error {
 	api.HandleFunc("/capabilities", s.handleGetCapabilities).Methods("GET")
 
 	// Admin API routes
-	adminService := admin.NewService()
+	adminConfig := &admin.Config{
+		TLS: admin.TLSConfig{
+			Enabled: false, // Will be configured via environment/config file
+		},
+	}
+	adminService := admin.NewService(adminConfig)
 	adminService.RegisterRoutes(router)
 
 	// WebSocket endpoint for real-time metrics

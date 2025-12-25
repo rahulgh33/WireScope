@@ -46,30 +46,17 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Demo authentication - in production, validate against database
-	// For now, accept admin/admin123 or any user with password matching username
-	var user *UserResponse
-	if req.Username == "admin" && req.Password == "admin123" {
-		user = &UserResponse{
-			ID:       "admin-001",
-			Username: "admin",
-			Role:     "admin",
-		}
-	} else if req.Username == "viewer" && req.Password == "viewer123" {
-		user = &UserResponse{
-			ID:       "viewer-001",
-			Username: "viewer",
-			Role:     "viewer",
-		}
-	} else if req.Username == "operator" && req.Password == "operator123" {
-		user = &UserResponse{
-			ID:       "operator-001",
-			Username: "operator",
-			Role:     "operator",
-		}
-	} else {
+	// Validate credentials using UserStore
+	authUser, err := s.userStore.ValidateCredentials(req.Username, req.Password)
+	if err != nil {
 		respondError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
+	}
+
+	user := &UserResponse{
+		ID:       authUser.ID,
+		Username: authUser.Username,
+		Role:     authUser.Role,
 	}
 
 	// Generate CSRF token
@@ -86,7 +73,7 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
 		HttpOnly: true,
-		Secure:   false, // Set to true in production with HTTPS
+		Secure:   s.config.TLS.Enabled, // Enable secure flag when TLS is enabled
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -97,7 +84,7 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   s.config.TLS.Enabled,
 		SameSite: http.SameSiteStrictMode,
 	})
 
@@ -184,7 +171,7 @@ func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   86400 * 7,
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   s.config.TLS.Enabled,
 		SameSite: http.SameSiteLaxMode,
 	})
 
