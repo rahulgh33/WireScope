@@ -1,78 +1,115 @@
 #!/bin/bash
-# Create burst traffic test for lag monitoring
-# Requirement: 8.1 - Burst traffic handling
+# Test script for burst traffic handling 
+# Tests rate limiting under high load conditions
 
-set -euo pipefail
+set -e  # Exit on error
 
-echo "=== Burst Traffic Test ==="
+echo "=== Starting burst traffic test ==="
 
 # Start infrastructure
-docker compose up -d postgres nats
+echo "Starting infrastructure..."
+docker compose down -v > /dev/null 2>&1 || true
+docker compose up -d postgres nats prometheus grafana > /dev/null 2>&1
 
+# Wait for services to be ready
+echo "Waiting for services to start..."
+sleep 10
+
+# Start ingest service
+echo "Starting ingest service..."
+go run cmd/ingest/main.go -api-tokens "test-token-probe-1" -rate-limit 5 -rate-limit-burst 3 -tracing-enabled=false > /tmp/ingest-burst.log 2>&1 &
+INGEST_PID=$!
 sleep 5
 
-# Start aggregator (foreground to see output)
-go run cmd/aggregator/main.go \
-  -nats-url nats://localhost:4222 \
-  -db-host localhost -db-port 5432 -db-name telemetry \
-  -db-user telemetry -db-password telemetry \
-  -window-size 60s -flush-delay 5s -metrics-port 9091 &
+# Start aggregator service  
+echo "Starting aggregator service..."
+go run cmd/aggregator/main.go -db-user telemetry -db-password telemetry -metrics-port 9091 -tracing-enabled=false > /tmp/aggregator-burst.log 2>&1 &
 AGGREGATOR_PID=$!
+sleep 5
 
-# Start ingest API 
-go run cmd/ingest/main.go \
-  -port 8080 -nats-url nats://localhost:4222 \
-  -api-tokens "test-token-123" \
-  -rate-limit 10 -rate-limit-burst 5 \
-  -tracing-enabled=false > /tmp/ingest.log 2>&1 &
-INGEST_PID=$!
-
+# Function to cleanup
 cleanup() {
-  echo "Cleaning up..."
-  kill $AGGREGATOR_PID $INGEST_PID 2>/dev/null || true
-  docker compose down
+    echo "Cleaning up..."
+    kill $INGEST_PID $AGGREGATOR_PID 2>/dev/null || true
+    docker compose down -v > /dev/null 2>&1
 }
 trap cleanup EXIT
 
-sleep 5
-
-echo "Testing burst traffic..."
-
-# Send burst of events
-for i in {1..20}; do
-  EVENT_UUID=$(python3 -c "import uuid; print(uuid.uuid4())")
-  curl -s -X POST http://localhost:8080/events \
-    -H "Authorization: Bearer test-token-123" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"event_id\": \"$EVENT_UUID\",
-      \"client_id\": \"burst-client\",
-      \"ts_ms\": $(date +%s000),
-      \"schema_version\": \"1.0\",
-      \"target\": \"http://test.com\",
-      \"network_context\": {\"interface_type\": \"wifi\", \"vpn_enabled\": false},
-      \"timings\": {\"dns_ms\": 5, \"tcp_ms\": 10, \"tls_ms\": 15, \"http_ttfb_ms\": 50},
-      \"throughput_kbps\": 1000
-    }" &
-  
-  if (( i % 5 == 0 )); then
-    wait
-    sleep 1
-  fi
-done
-
-wait
-sleep 5
-
-# Check metrics
-echo "Checking rate limit metrics..."
-RATE_LIMIT_HITS=$(curl -s http://localhost:8080/metrics | grep ingest_rate_limit_hits_total | tail -1 || echo "0")
-echo "Rate limit hits: $RATE_LIMIT_HITS"
-
-if echo "$RATE_LIMIT_HITS" | grep -q "ingest_rate_limit_hits_total"; then
-  echo "✅ Rate limiting activated during burst"
-else
-  echo "⚠️  No rate limit hits detected"
+# Verify services are running
+echo "Verifying services..."
+if ! curl -s http://localhost:8080/health > /dev/null; then
+    echo "Error: Ingest service not responding"
+    cat /tmp/ingest-burst.log
+    exit 1
 fi
 
-echo "✅ Burst traffic test completed"
+if ! curl -s http://localhost:9091/metrics > /dev/null; then
+    echo "Error: Aggregator service not responding"  
+    cat /tmp/aggregator-burst.log
+    exit 1
+fi
+
+echo "Services started successfully"
+
+# Function to send event
+send_event() {
+    local event_id=$(python3 -c "import uuid; print(str(uuid.uuid4()))")
+    curl -s -X POST http://localhost:8080/events \
+        -H "Authorization: Bearer test-token-probe-1" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "event_id": "'$event_id'",
+            "client_id": "test-client-burst",
+            "ts_ms": '$(date +%s000)',
+            "schema_version": "1.0",
+            "target": "https://test.example.com",
+            "network_context": {
+                "interface_type": "wifi", 
+                "vpn_enabled": false
+            },
+            "timings": {
+                "dns_ms": 10,
+                "tcp_ms": 20,
+                "tls_ms": 30,
+                "http_ttfb_ms": 50
+            },
+            "throughput_kbps": 1024,
+            "traceparent": "trace-'$event_id'",
+            "tracestate": "span-'$event_id'"
+        }' -w "%{http_code}\n"
+}
+
+# Send burst of events
+echo "Sending burst of 20 events..."
+accepted=0
+rate_limited=0
+
+for i in {1..20}; do
+    response=$(send_event)
+    http_code=$(echo "$response" | tail -1)
+    if [[ "$http_code" == "202" ]]; then
+        accepted=$((accepted + 1))
+    elif [[ "$http_code" == "429" ]]; then
+        rate_limited=$((rate_limited + 1))
+    fi
+    sleep 0.05  # Small delay between requests
+done
+
+echo "Events sent: 20"
+echo "Accepted: $accepted"  
+echo "Rate limited: $rate_limited"
+
+# Check rate limiting metrics
+echo "Checking rate limiting metrics..."
+sleep 2
+rate_limit_hits=$(curl -s http://localhost:8080/metrics | grep "ingest_rate_limit_hits_total" | grep -o '[0-9]\+$' | head -1 || echo "0")
+echo "Rate limit hits from metrics: $rate_limit_hits"
+
+# Verify test results
+if [ $rate_limited -gt 0 ]; then
+    echo "✅ PASS: Rate limiting is working (blocked $rate_limited requests)"
+    exit 0
+else
+    echo "❌ FAIL: No requests were rate limited"
+    exit 1
+fi

@@ -1,0 +1,123 @@
+version: '3.8'
+
+networks:
+  telemetry-storage:
+    external: true
+  telemetry-processing:
+    external: true
+  telemetry-monitoring:
+    external: true
+
+volumes:
+  nats_1_data:
+    driver: local
+  nats_2_data:
+    driver: local
+  nats_3_data:
+    driver: local
+
+services:
+  nats-1:
+    image: nats:2.10-alpine
+    command: |
+      nats-server 
+      --jetstream 
+      --store_dir=/data
+      --cluster_name=telemetry
+      --cluster=nats://0.0.0.0:6222
+      --routes=nats://nats-2:6222,nats://nats-3:6222
+      --server_name=nats-1
+      --port=4222
+      --http_port=8222
+      --config=/etc/nats/nats.conf
+    volumes:
+      - nats_1_data:/data
+      - ./nats/nats-cluster.conf:/etc/nats/nats.conf
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD", "nats", "server", "check", "--server=nats://localhost:4222"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+
+  nats-2:
+    image: nats:2.10-alpine
+    command: |
+      nats-server 
+      --jetstream 
+      --store_dir=/data
+      --cluster_name=telemetry
+      --cluster=nats://0.0.0.0:6222
+      --routes=nats://nats-1:6222,nats://nats-3:6222
+      --server_name=nats-2
+      --port=4222
+      --http_port=8222
+      --config=/etc/nats/nats.conf
+    volumes:
+      - nats_2_data:/data
+      - ./nats/nats-cluster.conf:/etc/nats/nats.conf
+    ports:
+      - "4223:4222"
+      - "8223:8222"
+      - "6223:6222"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD", "nats", "server", "check", "--server=nats://localhost:4222"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+
+  nats-3:
+    image: nats:2.10-alpine
+    command: |
+      nats-server 
+      --jetstream 
+      --store_dir=/data
+      --cluster_name=telemetry
+      --cluster=nats://0.0.0.0:6222
+      --routes=nats://nats-1:6222,nats://nats-2:6222
+      --server_name=nats-3
+      --port=4222
+      --http_port=8222
+      --config=/etc/nats/nats.conf
+    volumes:
+      - nats_3_data:/data
+      - ./nats/nats-cluster.conf:/etc/nats/nats.conf
+    ports:
+      - "4224:4222"
+      - "8224:8222"
+      - "6224:6222"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD", "nats", "server", "check", "--server=nats://localhost:4222"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'

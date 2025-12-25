@@ -1,0 +1,83 @@
+#!/bin/bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+log() { echo "[$(date +'%H:%M:%S')] $*"; }
+error() { echo "[ERROR] $*" >&2; }
+
+# Cleanup
+cleanup() {
+    log "Cleaning up..."
+    pkill -f "bin/ingest" 2>/dev/null || true
+    pkill -f "bin/aggregator" 2>/dev/null || true
+    pkill -f "bin/diagnoser" 2>/dev/null || true
+    docker compose -f deploy/docker-compose.nats-simple.yml down -v 2>/dev/null || true
+    docker compose -f deploy/docker-compose.storage-simple.yml down -v 2>/dev/null || true
+    docker network rm telemetry-storage telemetry-processing telemetry-ingest telemetry-monitoring 2>/dev/null || true
+}
+
+if [ "${1:-}" = "cleanup" ]; then
+    cleanup
+    exit 0
+fi
+
+trap cleanup EXIT
+
+log "Setting up networks..."
+docker network create telemetry-storage 2>/dev/null || true
+docker network create telemetry-processing 2>/dev/null || true
+docker network create telemetry-ingest 2>/dev/null || true
+docker network create telemetry-monitoring 2>/dev/null || true
+
+log "Starting PostgreSQL..."
+docker compose -f deploy/docker-compose.storage-simple.yml up -d postgres-primary
+sleep 10
+
+log "Running migrations..."
+make migrate || log "Migrations already applied"
+
+log "Starting NATS..."
+docker compose -f deploy/docker-compose.nats-simple.yml up -d
+sleep 10
+
+log "Building binaries..."
+make build
+
+log "Starting services..."
+NATS_URL=nats://localhost:4222 DB_HOST=localhost DB_PORT=5432 DB_NAME=telemetry DB_USER=telemetry DB_PASSWORD=telemetry METRICS_PORT=9091 nohup ./bin/aggregator > /tmp/aggregator.log 2>&1 &
+sleep 3
+
+NATS_URL=nats://localhost:4222 PORT=8080 AUTH_TOKEN=test-token METRICS_PORT=9090 nohup ./bin/ingest > /tmp/ingest.log 2>&1 &
+sleep 5
+
+log "Checking service health..."
+curl -sf http://localhost:8080/health || { error "Ingest not healthy"; exit 1; }
+curl -sf http://localhost:9091/metrics > /dev/null || { error "Aggregator not healthy"; exit 1; }
+
+log "Sending test event..."
+EVENT_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+TS_MS=$(($(date +%s) * 1000))
+curl -X POST http://localhost:8080/events \
+  -H "Authorization: Bearer test-token" \
+  -H "Content-Type: application/json" \
+  -d "{\"event_id\":\"$EVENT_ID\",\"client_id\":\"test-e2e\",\"ts_ms\":$TS_MS,\"schema_version\":1,\"network_context\":{\"client_ip\":\"1.2.3.4\"},\"target\":\"google.com\",\"timing\":{\"dns_ms\":10,\"tcp_ms\":15,\"tls_ms\":20,\"ttfb_ms\":50,\"download_ms\":100},\"throughput_mbps\":50.0,\"error_stage\":null}"
+
+log "Waiting for processing..."
+sleep 90
+
+log "Checking database..."
+COUNT=$(docker exec $(docker ps -q --filter "name=postgres-primary") psql -U telemetry -d telemetry -t -A -c "SELECT COUNT(*) FROM agg_1m WHERE client_id='test-e2e'")
+
+if [ "$COUNT" -gt 0 ]; then
+    log "✅ SUCCESS! Found $COUNT aggregate(s)"
+    docker exec $(docker ps -q --filter "name=postgres-primary") psql -U telemetry -d telemetry -c "SELECT * FROM agg_1m WHERE client_id='test-e2e' LIMIT 3"
+else
+    error "❌ FAILED! No aggregates found"
+    log "Aggregator logs:"
+    tail -50 /tmp/aggregator.log
+    exit 1
+fi
+
+log "Test completed successfully!"

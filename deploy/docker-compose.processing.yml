@@ -1,0 +1,93 @@
+version: '3.8'
+
+networks:
+  telemetry-storage:
+    external: true
+  telemetry-processing:
+    external: true
+  telemetry-monitoring:
+    external: true
+
+services:
+  aggregator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.aggregator
+    environment:
+      - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+      - DB_HOST=${DB_HOST:-postgres-primary}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-telemetry}
+      - DB_USER=${DB_USER:-telemetry}
+      - DB_PASSWORD=${DB_PASSWORD:-telemetry}
+      - WINDOW_SIZE=${WINDOW_SIZE:-60s}
+      - FLUSH_DELAY=${FLUSH_DELAY:-5s}
+      - LATE_TOLERANCE=${LATE_TOLERANCE:-2m}
+      - METRICS_PORT=9091
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+    ports:
+      - "9091:9091"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: ${AGGREGATOR_REPLICAS:-2}
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+
+  diagnoser:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.diagnoser
+    environment:
+      - DB_HOST=${DB_HOST:-postgres-primary}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-telemetry}
+      - DB_USER=${DB_USER:-telemetry}
+      - DB_PASSWORD=${DB_PASSWORD:-telemetry}
+      - INTERVAL=${DIAGNOSER_INTERVAL:-30s}
+      - METRICS_PORT=9092
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+    ports:
+      - "9092:9092"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9092/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5

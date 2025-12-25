@@ -1,0 +1,89 @@
+version: '3.8'
+
+networks:
+  telemetry-storage:
+    external: true
+  telemetry-processing:
+    external: true
+  telemetry-monitoring:
+    external: true
+
+volumes:
+  postgres_primary_data:
+    driver: local
+  postgres_replica_data:
+    driver: local
+
+services:
+  postgres-primary:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: telemetry
+      POSTGRES_USER: telemetry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telemetry}
+      POSTGRES_REPLICA_USER: replica
+      POSTGRES_REPLICA_PASSWORD: ${REPLICA_PASSWORD:-replica}
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ../config/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./postgres/primary-setup.sql:/docker-entrypoint-initdb.d/02-replication.sql
+      - ./postgres/postgresql-primary.conf:/etc/postgresql/postgresql.conf
+      - ./postgres/pg_hba-primary.conf:/etc/postgresql/pg_hba.conf
+    ports:
+      - "5432:5432"
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+
+  postgres-replica:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: telemetry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telemetry}
+      PGUSER: replica
+      PGPASSWORD: ${REPLICA_PASSWORD:-replica}
+      POSTGRES_MASTER_SERVICE: postgres-primary
+      POSTGRES_REPLICA_USER: replica
+      POSTGRES_REPLICA_PASSWORD: ${REPLICA_PASSWORD:-replica}
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./postgres/replica-setup.sh:/docker-entrypoint-initdb.d/replica-setup.sh
+      - ./postgres/postgresql-replica.conf:/etc/postgresql/postgresql.conf
+      - ./postgres/pg_hba-replica.conf:/etc/postgresql/pg_hba.conf
+    ports:
+      - "5433:5432"
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    depends_on:
+      - postgres-primary
+    networks:
+      - telemetry-storage
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'

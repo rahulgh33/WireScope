@@ -90,22 +90,6 @@ var (
 		},
 		[]string{"status"},
 	)
-
-	percentileComputeDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name: "percentile_computation_duration_seconds",
-			Help: "Time taken to compute percentiles",
-			Buckets: []float64{
-				0.0001, // 0.1ms
-				0.0005, // 0.5ms
-				0.001,  // 1ms
-				0.005,  // 5ms
-				0.010,  // 10ms
-				0.050,  // 50ms
-				0.100,  // 100ms
-			},
-		},
-	)
 )
 
 func init() {
@@ -114,7 +98,6 @@ func init() {
 	prometheus.MustRegister(dedupRate)
 	prometheus.MustRegister(lateEventsTotal)
 	prometheus.MustRegister(windowFlushDuration)
-	prometheus.MustRegister(percentileComputeDuration)
 }
 
 // Aggregator consumes events from NATS and produces windowed aggregates

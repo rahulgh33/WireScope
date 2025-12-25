@@ -49,6 +49,61 @@ build:
 	@echo "Building diagnoser..."
 	go build -o bin/diagnoser ./cmd/diagnoser
 
+# Build probe for remote deployment
+build-probe:
+	@echo "Building probe agent..."
+	go build -o bin/probe ./cmd/probe
+	@echo "Probe built successfully: bin/probe"
+	
+# Create probe deployment package
+probe-package: build-probe
+	@echo "Creating probe deployment package..."
+	@mkdir -p deploy/probe-package
+	@cp bin/probe deploy/probe-package/
+	@echo "#!/bin/bash" > deploy/probe-package/run-probe.sh
+	@echo "# WireScope Probe Agent" >> deploy/probe-package/run-probe.sh
+	@echo "# Usage: ./run-probe.sh <server-ip> [interval-seconds]" >> deploy/probe-package/run-probe.sh
+	@echo "" >> deploy/probe-package/run-probe.sh
+	@echo "SERVER_IP=\$$1" >> deploy/probe-package/run-probe.sh
+	@echo "INTERVAL=\$${2:-10}" >> deploy/probe-package/run-probe.sh
+	@echo "" >> deploy/probe-package/run-probe.sh
+	@echo "if [ -z \"\$$SERVER_IP\" ]; then" >> deploy/probe-package/run-probe.sh
+	@echo "  echo \"Usage: ./run-probe.sh <server-ip> [interval-seconds]\"" >> deploy/probe-package/run-probe.sh
+	@echo "  echo \"Example: ./run-probe.sh 192.168.1.100 10\"" >> deploy/probe-package/run-probe.sh
+	@echo "  exit 1" >> deploy/probe-package/run-probe.sh
+	@echo "fi" >> deploy/probe-package/run-probe.sh
+	@echo "" >> deploy/probe-package/run-probe.sh
+	@echo "export INGEST_URL=\"http://\$$SERVER_IP:8081/ingest\"" >> deploy/probe-package/run-probe.sh
+	@echo "export PROBE_INTERVAL=\"\$$INTERVAL\"" >> deploy/probe-package/run-probe.sh
+	@echo "export PROBE_ID=\"probe-\$$HOSTNAME-\$$RANDOM\"" >> deploy/probe-package/run-probe.sh
+	@echo "" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"Starting WireScope Probe Agent...\"" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"Server: \$$INGEST_URL\"" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"Interval: \$$INTERVAL seconds\"" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"Probe ID: \$$PROBE_ID\"" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"\"" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"Press Ctrl+C to stop\"" >> deploy/probe-package/run-probe.sh
+	@echo "echo \"\"" >> deploy/probe-package/run-probe.sh
+	@echo "" >> deploy/probe-package/run-probe.sh
+	@echo "./probe" >> deploy/probe-package/run-probe.sh
+	@chmod +x deploy/probe-package/run-probe.sh
+	@echo "INGEST_URL=http://YOUR_SERVER_IP:8081/ingest" > deploy/probe-package/.env.example
+	@echo "PROBE_INTERVAL=10" >> deploy/probe-package/.env.example
+	@echo "PROBE_ID=probe-remote-1" >> deploy/probe-package/.env.example
+	@echo ""
+	@echo "✓ Probe package created: deploy/probe-package/"
+	@echo ""
+	@echo "To deploy:"
+	@echo "  1. Transfer deploy/probe-package/ to remote machine"
+	@echo "  2. Run: ./run-probe.sh <your-mac-ip> [interval]"
+	@echo "  3. Example: ./run-probe.sh 192.168.1.100 10"
+	@echo "Building cleanup utility..."
+	go build -o bin/cleanup ./cmd/cleanup
+	@echo "Building AI agent service..."
+	go build -o bin/ai-agent ./cmd/ai-agent
+	@echo "Building AI agent CLI..."
+	go build -o bin/telemetry-ai ./cmd/telemetry-ai
+
 # Test targets
 test:
 	go test -v ./...
@@ -82,6 +137,19 @@ clean:
 	docker-compose down -v
 	docker system prune -f
 
+# Database maintenance targets
+db-cleanup:
+	@echo "Running database cleanup (dry-run)..."
+	./bin/cleanup -dry-run
+
+db-cleanup-force:
+	@echo "Running database cleanup (actual deletion)..."
+	./bin/cleanup
+
+db-health:
+	@echo "Running database health check..."
+	./bin/cleanup -health-check
+
 # Development helpers
 validate:
 	@echo "Running setup validation..."
@@ -113,3 +181,9 @@ run-aggregator:
 
 run-diagnoser:
 	./bin/diagnoser
+
+run-ai-agent:
+	./bin/ai-agent
+
+run-ai-cli:
+	./bin/telemetry-ai

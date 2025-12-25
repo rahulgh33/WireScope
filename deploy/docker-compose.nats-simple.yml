@@ -1,0 +1,37 @@
+version: '3.8'
+
+networks:
+  telemetry-storage:
+    external: true
+  telemetry-processing:
+    external: true
+  telemetry-monitoring:
+    external: true
+
+volumes:
+  nats_data:
+    driver: local
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - nats_data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'

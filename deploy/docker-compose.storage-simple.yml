@@ -1,0 +1,40 @@
+version: '3.8'
+
+networks:
+  telemetry-storage:
+    external: true
+  telemetry-processing:
+    external: true
+  telemetry-monitoring:
+    external: true
+
+volumes:
+  postgres_primary_data:
+    driver: local
+
+services:
+  postgres-primary:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: telemetry
+      POSTGRES_USER: telemetry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telemetry}
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ../config/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - telemetry-storage
+      - telemetry-processing
+      - telemetry-monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'

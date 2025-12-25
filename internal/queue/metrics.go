@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -34,11 +36,15 @@ var (
 			Help: "Total number of NATS reconnection events",
 		},
 	)
+
+	metricsOnce sync.Once
 )
 
 func init() {
-	prometheus.MustRegister(queueLagMessages)
-	prometheus.MustRegister(queueAckPendingMessages)
-	prometheus.MustRegister(dlqMessagesTotal)
-	prometheus.MustRegister(natsReconnectsTotal)
+	metricsOnce.Do(func() {
+		prometheus.DefaultRegisterer.MustRegister(queueLagMessages)
+		prometheus.DefaultRegisterer.MustRegister(queueAckPendingMessages)
+		prometheus.DefaultRegisterer.MustRegister(dlqMessagesTotal)
+		prometheus.DefaultRegisterer.MustRegister(natsReconnectsTotal)
+	})
 }

@@ -1,0 +1,221 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:15
+    container_name: wirescope-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wirescope
+
+  # Message Queue
+  nats:
+    image: nats:2.10-alpine
+    container_name: wirescope-nats
+    command: 
+      - "--jetstream"
+      - "--store_dir=/data"
+      - "--http_port=8222"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - wirescope
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: wirescope-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - wirescope
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: wirescope-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=wirescope123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - wirescope
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: wirescope-jaeger
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    volumes:
+      - jaeger_data:/tmp
+    networks:
+      - wirescope
+
+  # WireScope Services
+  ingest:
+    build: 
+      context: .
+      dockerfile: deploy/Dockerfile.ingest
+    container_name: wirescope-ingest
+    ports:
+      - "${INGEST_PORT}:8081"
+    environment:
+      - NATS_URL=${NATS_URL}
+      - API_TOKENS=${API_TOKENS}
+      - OTLP_ENDPOINT=${OTLP_ENDPOINT}
+      - TRACING_ENABLED=${TRACING_ENABLED}
+    depends_on:
+      nats:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - wirescope
+
+  aggregator:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.aggregator
+    container_name: wirescope-aggregator
+    ports:
+      - "${AGGREGATOR_METRICS_PORT}:9091"
+    environment:
+      - NATS_URL=${NATS_URL}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - OTLP_ENDPOINT=${OTLP_ENDPOINT}
+      - TRACING_ENABLED=${TRACING_ENABLED}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      ingest:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - wirescope
+
+  ai-agent:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.ai-agent
+    container_name: wirescope-ai-agent
+    ports:
+      - "${AI_AGENT_PORT}:9000"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - AI_PROVIDER=${AI_PROVIDER}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_MODEL=${AI_MODEL}
+      - SERVER_ADDR=0.0.0.0:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - wirescope
+
+  # Web UI (built from source)
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: wirescope-web
+    ports:
+      - "${WEB_PORT}:3000"
+    environment:
+      - VITE_API_BASE_URL=http://${EXTERNAL_HOST}:${AI_AGENT_PORT}
+    depends_on:
+      ai-agent:
+        condition: service_healthy
+    networks:
+      - wirescope
+
+  # Test Target (optional, for testing)
+  test-target:
+    build:
+      context: ./config
+      dockerfile: Dockerfile.test-server
+    container_name: wirescope-test-target
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - wirescope
+
+volumes:
+  postgres_data:
+  nats_data:
+  prometheus_data:
+  grafana_data:
+  jaeger_data:
+
+networks:
+  wirescope:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

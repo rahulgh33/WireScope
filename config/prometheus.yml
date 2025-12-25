@@ -16,6 +16,12 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 5s
 
+  - job_name: 'ai-agent'
+    static_configs:
+      - targets: ['host.docker.internal:9000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
   - job_name: 'aggregator'
     static_configs:
       - targets: ['host.docker.internal:8082']

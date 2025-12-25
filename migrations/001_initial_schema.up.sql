@@ -1,21 +1,31 @@
 -- Initial schema for Network QoE Telemetry Platform
 
 -- Events deduplication table
-CREATE TABLE events_seen (
+CREATE TABLE IF NOT EXISTS events_seen (
     event_id UUID PRIMARY KEY,
     client_id VARCHAR(255) NOT NULL,
     ts_ms BIGINT NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Index for efficient client/timestamp queries
-CREATE INDEX idx_events_seen_client_ts ON events_seen(client_id, ts_ms);
+-- Index for efficient client/timestamp queries (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_events_seen_client_ts') THEN
+        CREATE INDEX idx_events_seen_client_ts ON events_seen(client_id, ts_ms);
+    END IF;
+END $$;
 
--- Index for cleanup operations
-CREATE INDEX idx_events_seen_created_at ON events_seen(created_at);
+-- Index for cleanup operations (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_events_seen_created_at') THEN
+        CREATE INDEX idx_events_seen_created_at ON events_seen(created_at);
+    END IF;
+END $$;
 
 -- Aggregates table for 1-minute windows
-CREATE TABLE agg_1m (
+CREATE TABLE IF NOT EXISTS agg_1m (
     client_id VARCHAR(255) NOT NULL,
     target VARCHAR(255) NOT NULL,
     window_start_ts TIMESTAMP NOT NULL,
@@ -42,13 +52,30 @@ CREATE TABLE agg_1m (
     PRIMARY KEY (client_id, target, window_start_ts)
 );
 
--- Indexes for efficient queries
-CREATE INDEX idx_agg_1m_window ON agg_1m(window_start_ts);
-CREATE INDEX idx_agg_1m_diagnosis ON agg_1m(diagnosis_label) WHERE diagnosis_label IS NOT NULL;
-CREATE INDEX idx_agg_1m_client_target_window ON agg_1m(client_id, target, window_start_ts DESC);
+-- Indexes for efficient queries (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agg_1m_window') THEN
+        CREATE INDEX idx_agg_1m_window ON agg_1m(window_start_ts);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agg_1m_diagnosis') THEN
+        CREATE INDEX idx_agg_1m_diagnosis ON agg_1m(diagnosis_label) WHERE diagnosis_label IS NOT NULL;
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_agg_1m_client_target_window') THEN
+        CREATE INDEX idx_agg_1m_client_target_window ON agg_1m(client_id, target, window_start_ts DESC);
+    END IF;
+END $$;
 
 -- Optional alerts table for future use
-CREATE TABLE alerts (
+CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     client_id VARCHAR(255) NOT NULL,
     target VARCHAR(255) NOT NULL,
@@ -62,7 +89,24 @@ CREATE TABLE alerts (
     resolved_at TIMESTAMP
 );
 
--- Indexes for alerts
-CREATE INDEX idx_alerts_client_target ON alerts(client_id, target);
-CREATE INDEX idx_alerts_created ON alerts(created_at);
-CREATE INDEX idx_alerts_unresolved ON alerts(created_at) WHERE resolved_at IS NULL;
+-- Indexes for alerts (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_alerts_client_target') THEN
+        CREATE INDEX idx_alerts_client_target ON alerts(client_id, target);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_alerts_created') THEN
+        CREATE INDEX idx_alerts_created ON alerts(created_at);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_alerts_unresolved') THEN
+        CREATE INDEX idx_alerts_unresolved ON alerts(created_at) WHERE resolved_at IS NULL;
+    END IF;
+END $$;

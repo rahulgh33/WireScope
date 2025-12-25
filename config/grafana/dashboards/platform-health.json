@@ -1,0 +1,300 @@
+{
+  "id": null,
+  "uid": "platform-health",
+  "title": "Platform Health Dashboard",
+  "description": "Service metrics and SLA monitoring for the distributed telemetry platform",
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "id": 1,
+      "title": "Ingest API Request Rate",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 0, "w": 8, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (method, status)",
+          "legendFormat": "{{method}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "id": 2,
+      "title": "Ingest API Success Rate",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"2..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "id": 3,
+      "title": "Ingest API P95 Latency",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "yellow", "value": 0.1},
+              {"color": "red", "value": 0.5}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 4,
+      "title": "Queue Metrics",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 16, "y": 0, "w": 8, "h": 8},
+      "targets": [
+        {
+          "expr": "queue_length",
+          "legendFormat": "Queue Length",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(queue_messages_published_total[5m])",
+          "legendFormat": "Publish Rate",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(queue_messages_consumed_total[5m])",
+          "legendFormat": "Consume Rate",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "id": 5,
+      "title": "Queue Processing Rate",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 8, "y": 4, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "rate(queue_processing_duration_seconds_count[5m])",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "id": 6,
+      "title": "Queue Processing P95",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 4, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(queue_processing_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 7,
+      "title": "Aggregator Metrics",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(aggregator_events_processed_total[5m])",
+          "legendFormat": "Events Processed/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(aggregator_windows_created_total[5m])",
+          "legendFormat": "Windows Created/sec",
+          "refId": "B"
+        },
+        {
+          "expr": "aggregator_active_windows",
+          "legendFormat": "Active Windows",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 8,
+      "title": "Database Connections",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "database_connections_active",
+          "legendFormat": "Active Connections",
+          "refId": "A"
+        },
+        {
+          "expr": "database_connections_idle",
+          "legendFormat": "Idle Connections",
+          "refId": "B"
+        },
+        {
+          "expr": "database_connections_max",
+          "legendFormat": "Max Connections",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 9,
+      "title": "Processing Delay (End-to-End)",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(processing_delay_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(processing_delay_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(processing_delay_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 10,
+      "title": "Garbage Collection",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(go_gc_duration_seconds_sum[5m])",
+          "legendFormat": "GC Time/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes",
+          "legendFormat": "Heap In Use",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "id": 11,
+      "title": "Alert Summary",
+      "datasource": "Prometheus",
+      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 8},
+      "targets": [
+        {
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "format": "table",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {"__name__": true, "instance": true, "job": true},
+            "indexByName": {},
+            "renameByName": {
+              "alertname": "Alert",
+              "alertstate": "State",
+              "severity": "Severity",
+              "summary": "Summary"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up, instance)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": null
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Alerts",
+        "datasource": "Prometheus",
+        "expr": "ALERTS{alertname!=\"\"}",
+        "step": "60s",
+        "textFormat": "{{alertname}}: {{summary}}",
+        "titleFormat": "Alert",
+        "tagsField": "severity",
+        "iconColor": "red"
+      }
+    ]
+  }
+}

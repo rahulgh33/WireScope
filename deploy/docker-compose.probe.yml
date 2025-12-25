@@ -1,0 +1,60 @@
+version: '3.8'
+
+networks:
+  telemetry-ingest:
+    external: true
+  telemetry-monitoring:
+    external: true
+
+services:
+  probe:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.probe
+    environment:
+      - INGEST_URL=${INGEST_URL:-http://nginx-lb/events}
+      - AUTH_TOKEN=${AUTH_TOKEN:-test-token}
+      - CLIENT_ID=${CLIENT_ID}
+      - TARGETS=${TARGETS:-google.com,cloudflare.com,github.com}
+      - INTERVAL=${PROBE_INTERVAL:-30s}
+      - TIMEOUT=${PROBE_TIMEOUT:-10s}
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+    networks:
+      - telemetry-ingest
+      - telemetry-monitoring
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+  probe-local-tests:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.probe
+    environment:
+      - INGEST_URL=${INGEST_URL:-http://nginx-lb/events}
+      - AUTH_TOKEN=${AUTH_TOKEN:-test-token}
+      - CLIENT_ID=${CLIENT_ID:-probe-local}
+      - TARGETS=test-target:80
+      - INTERVAL=10s
+      - TIMEOUT=5s
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+    networks:
+      - telemetry-ingest
+      - telemetry-monitoring
+    restart: unless-stopped
+    deploy:
+      replicas: 0  # Disabled by default, enable for testing
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'

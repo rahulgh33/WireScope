@@ -1,0 +1,315 @@
+{
+  "id": null,
+  "uid": "network-performance",
+  "title": "Network Performance Dashboard",
+  "description": "Network QoE telemetry dashboard showing latency trends, error rates, and diagnosis insights from aggregated data",
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "id": 1,
+      "title": "DNS Resolution Time (P50/P95)",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, dns_p50 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND dns_p50 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "A",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P50)"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, dns_p95 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND dns_p95 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "B",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P95)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 2,
+      "title": "TCP Connect Time (P50/P95)",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, tcp_p50 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND tcp_p50 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "A",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P50)"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, tcp_p95 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND tcp_p95 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "B",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P95)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 3,
+      "title": "TLS Handshake Time (P50/P95)",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, tls_p50 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND tls_p50 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "A",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P50)"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, tls_p95 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND tls_p95 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "B",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P95)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 4,
+      "title": "Time to First Byte (P50/P95)",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, ttfb_p50 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND ttfb_p50 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "A",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P50)"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, ttfb_p95 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND ttfb_p95 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "B",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P95)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 5,
+      "title": "Throughput (P50/P95)",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, throughput_p50 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND throughput_p50 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "A",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P50)"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, client_id, target, throughput_p95 as value FROM agg_1m WHERE $__timeFilter(window_start_ts) AND throughput_p95 IS NOT NULL ORDER BY window_start_ts",
+          "refId": "B",
+          "format": "time_series",
+          "alias": "{{client_id}} - {{target}} (P95)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Kbps",
+          "min": 0
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 6,
+      "title": "Error Rate by Stage",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts as time, 'DNS' as metric, CASE WHEN count_total > 0 THEN CAST(dns_error_count AS FLOAT) / count_total * 100 ELSE 0 END as value FROM agg_1m WHERE $__timeFilter(window_start_ts) ORDER BY window_start_ts",
+          "refId": "A",
+          "format": "time_series",
+          "alias": "DNS Error Rate %"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, 'TCP' as metric, CASE WHEN count_total > 0 THEN CAST(tcp_error_count AS FLOAT) / count_total * 100 ELSE 0 END as value FROM agg_1m WHERE $__timeFilter(window_start_ts) ORDER BY window_start_ts",
+          "refId": "B",
+          "format": "time_series",
+          "alias": "TCP Error Rate %"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, 'TLS' as metric, CASE WHEN count_total > 0 THEN CAST(tls_error_count AS FLOAT) / count_total * 100 ELSE 0 END as value FROM agg_1m WHERE $__timeFilter(window_start_ts) ORDER BY window_start_ts",
+          "refId": "C",
+          "format": "time_series",
+          "alias": "TLS Error Rate %"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, 'HTTP' as metric, CASE WHEN count_total > 0 THEN CAST(http_error_count AS FLOAT) / count_total * 100 ELSE 0 END as value FROM agg_1m WHERE $__timeFilter(window_start_ts) ORDER BY window_start_ts",
+          "refId": "D",
+          "format": "time_series",
+          "alias": "HTTP Error Rate %"
+        },
+        {
+          "expr": "SELECT window_start_ts as time, 'Throughput' as metric, CASE WHEN count_total > 0 THEN CAST(throughput_error_count AS FLOAT) / count_total * 100 ELSE 0 END as value FROM agg_1m WHERE $__timeFilter(window_start_ts) ORDER BY window_start_ts",
+          "refId": "E",
+          "format": "time_series",
+          "alias": "Throughput Error Rate %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "id": 7,
+      "title": "Overall Success Rate",
+      "datasource": "PostgreSQL", 
+      "gridPos": {"x": 0, "y": 24, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "SELECT CASE WHEN SUM(count_total) > 0 THEN CAST(SUM(count_success) AS FLOAT) / SUM(count_total) * 100 ELSE 0 END as value FROM agg_1m WHERE $__timeFilter(window_start_ts)",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "type": "stat",
+      "id": 8,
+      "title": "Total Measurements (Last Hour)",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 6, "y": 24, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "SELECT SUM(count_total) as value FROM agg_1m WHERE window_start_ts >= NOW() - INTERVAL '1 hour'",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "id": 9,
+      "title": "Recent Diagnosis Labels",
+      "datasource": "PostgreSQL",
+      "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "SELECT window_start_ts, client_id, target, diagnosis_label, count_total FROM agg_1m WHERE $__timeFilter(window_start_ts) AND diagnosis_label IS NOT NULL AND diagnosis_label != '' ORDER BY window_start_ts DESC LIMIT 100",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "window_start_ts": "Time",
+              "client_id": "Client",
+              "target": "Target", 
+              "diagnosis_label": "Diagnosis",
+              "count_total": "Measurements"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "client_id",
+        "type": "query",
+        "datasource": "PostgreSQL",
+        "query": "SELECT DISTINCT client_id FROM agg_1m ORDER BY client_id",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": null
+      },
+      {
+        "name": "target",
+        "type": "query", 
+        "datasource": "PostgreSQL",
+        "query": "SELECT DISTINCT target FROM agg_1m ORDER BY target",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": null
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Diagnosis Events",
+        "datasource": "PostgreSQL",
+        "query": "SELECT window_start_ts as time, diagnosis_label as text, CONCAT(client_id, ' - ', target) as tags FROM agg_1m WHERE $__timeFilter(window_start_ts) AND diagnosis_label IS NOT NULL AND diagnosis_label != ''",
+        "textFormat": "{{diagnosis_label}}",
+        "titleFormat": "Diagnosis",
+        "tagsField": "tags",
+        "iconColor": "orange"
+      }
+    ]
+  }
+}
