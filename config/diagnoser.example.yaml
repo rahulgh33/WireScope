@@ -1,0 +1,13 @@
+# Diagnoser configuration
+database_url: "postgres://user:pass@localhost:5432/telemetry?sslmode=disable"
+
+# How often to run diagnosis (seconds)
+check_interval: 60
+
+# Baseline window count
+baseline_windows: 10
+
+# Thresholds
+dns_threshold: 0.6      # 60% of total latency
+handshake_sigma: 2.0    # 2 standard deviations
+throughput_drop: 0.3    # 30% drop

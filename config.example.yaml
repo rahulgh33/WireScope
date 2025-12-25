@@ -1,0 +1,18 @@
+# Example configuration for probe
+# Copy to config.yaml and customize
+
+ingest_url: "http://localhost:8081/events"
+api_token: "your-token-here"
+
+target: "https://google.com"
+client_id: "my-probe"
+interval: 60
+
+# Optional: custom client ID
+# client_id: "probe-office-1"
+
+# Optional: measure multiple targets
+# targets:
+#   - https://google.com
+#   - https://cloudflare.com
+#   - https://example.com

@@ -1,0 +1,9 @@
+# Ingest API configuration
+nats_url: "nats://localhost:4222"
+port: 8081
+
+# Comma-separated API tokens
+api_tokens: "demo-token,prod-token-123"
+
+# Optional: rate limiting
+# rate_limit_per_client: 100  # requests per minute
