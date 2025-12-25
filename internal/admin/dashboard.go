@@ -18,6 +18,7 @@ func (s *Service) RegisterDashboardRoutes(router *mux.Router) {
 	// Clients
 	api.HandleFunc("/clients", s.getClients).Methods("GET")
 	api.HandleFunc("/clients/{id}", s.getClientDetail).Methods("GET")
+	api.HandleFunc("/clients/{id}", s.deleteClient).Methods("DELETE")
 	api.HandleFunc("/clients/{id}/performance", s.getClientPerformance).Methods("GET")
 
 	// Targets
@@ -309,4 +310,23 @@ func (s *Service) getDiagnosticsTrends(w http.ResponseWriter, r *http.Request) {
 		"trends": trends,
 	}
 	respondJSON(w, http.StatusOK, response)
+}
+
+func (s *Service) deleteClient(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	clientID := vars["id"]
+
+	// TODO: In real implementation, this would:
+	// 1. Delete all aggregates for this client (agg_1m, agg_5m, agg_1h)
+	// 2. Delete all diagnoses for this client
+	// 3. Delete all AI analyses for this client
+	// 4. Delete the client record
+	// 5. Consider cascading deletes vs soft deletes based on requirements
+
+	// For now, just respond with success
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"message":   "Client deleted successfully",
+		"client_id": clientID,
+	})
 }

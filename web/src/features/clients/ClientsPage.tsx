@@ -12,7 +12,7 @@ export function ClientsPage() {
   const [sort, setSort] = useState<SortOption>('last_seen_desc');
   const [statusFilter, setStatusFilter] = useState<string[]>(['active']); // Default to only 'active'
 
-  const { data, isLoading, error } = useClients({
+  const { data, isLoading, error, refetch } = useClients({
     search: search || undefined,
     sort,
     limit: 50,
@@ -22,6 +22,11 @@ export function ClientsPage() {
     if (statusFilter.length === 0) return true;
     return statusFilter.includes(client.status);
   });
+
+  const handleDeleteClient = (clientId: string) => {
+    // Refresh the client list after deletion
+    refetch();
+  };
 
   return (
     <div className="space-y-6">
@@ -117,7 +122,7 @@ export function ClientsPage() {
           ) : (
             <div className="space-y-4">
               {filteredClients.map((client) => (
-                <ClientCard key={client.client_id} client={client} />
+                <ClientCard key={client.client_id} client={client} onDelete={handleDeleteClient} />
               ))}
             </div>
           )}
