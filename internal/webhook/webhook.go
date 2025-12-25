@@ -1,0 +1,43 @@
+package webhook
+package webhook
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}	return nil	}		}(endpoint)			w.client.Post(url, "application/json", bytes.NewReader(data))		go func(url string) {	for _, endpoint := range w.endpoints {	}		return err	if err != nil {	data, err := json.Marshal(event)func (w *WebhookService) Send(event *Event) error {}	}		client:    &http.Client{Timeout: 5 * time.Second},		endpoints: endpoints,	return &WebhookService{func NewWebhookService(endpoints []string) *WebhookService {}	client    *http.Client	endpoints []stringtype WebhookService struct {}	Data      interface{} `json:"data"`	Timestamp time.Time   `json:"timestamp"`	Type      string      `json:"type"`type Event struct {)	"time"	"net/http"	"encoding/json"	"bytes"import (

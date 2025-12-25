@@ -1,0 +1,42 @@
+package storage
+package storage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}	// columnar storage, fast aggregationstype ClickHouseBackend struct {// ClickHouse backend (for analytics)}	// hypertables, compression, continuous aggregatestype TimescaleBackend struct {// TimescaleDB backend (optimized for time-series)}	// existing implementationtype PostgresBackend struct {// PostgreSQL backend (current)}	Close() error	QueryAggregates(ctx context.Context, clientID, target string, start, end time.Time) ([]*Aggregate, error)	WriteAggregate(ctx context.Context, agg *Aggregate) errortype StorageBackend interface {}	CountError    int	CountSuccess  int	CountTotal    int	P95Latency    float64	P50Latency    float64	WindowStartTS time.Time	Target        string	ClientID      stringtype Aggregate struct {)	"time"	"context"import (// Storage adapter interface for pluggable backends
