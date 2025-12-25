@@ -337,7 +337,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
 ### Milestone F: Production Readiness & Customization
 
 - [x] 39. Add licensing and open source preparation
-  - Add LICENSE file (MIT or Apache 2.0)
+  - Add LICENSE file (GNU GPL v3)
   - Create CONTRIBUTING.md with contribution guidelines
   - Add CODE_OF_CONDUCT.md for community standards
   - Update README with proper attribution and credits

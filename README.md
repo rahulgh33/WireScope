@@ -287,7 +287,7 @@ For higher load, run multiple ingest API instances behind a load balancer.
 
 ## License
 
-MIT
+GNU GPL v3
 
 ## Contributing
 
