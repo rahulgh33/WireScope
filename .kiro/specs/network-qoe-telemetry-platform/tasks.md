@@ -28,7 +28,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Implement database connection utilities with connection pooling
   - _Requirements: 11.1, 11.3, 11.4_
 
-- [ ] 3. Create core data models and interfaces
+- [x] 3. Create core data models and interfaces
   - Define TelemetryEvent struct with schema versioning and recv_ts_ms field
   - Implement NetworkContext and TimingMeasurements structs
   - Create WindowedAggregate struct with quality counters and error stage counts
@@ -36,18 +36,18 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Implement validation functions for data integrity
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 3.1 Write property test for event structure validation
+- [x] 3.1 Write property test for event structure validation
   - **Property 2: Event structure validity**
   - **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
 
-- [ ] 4. Implement NATS JetStream integration
+- [x] 4. Implement NATS JetStream integration
   - Set up NATS JetStream client with stream and consumer configuration
   - Create telemetry-events stream with file storage and retention policies
   - Create telemetry-events-dlq stream for poison message handling
   - Implement EventProcessor with publish, consume, and acknowledgment methods
   - _Requirements: 3.1, 8.4_
 
-- [ ] 5. Create test target server for deterministic testing
+- [x] 5. Create test target server for deterministic testing
   - Build HTTP server with /health endpoint (fast TTFB)
   - Add /slow?ms=N endpoint with controllable delay
   - Implement /fixed/1mb.bin endpoint for throughput testing
@@ -55,7 +55,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Configure as Docker service in compose stack
   - _Requirements: Testing infrastructure_
 
-- [ ] 6. Build probe agent CLI (minimal)
+- [x] 6. Build probe agent CLI (minimal)
   - Implement network measurement functions for DNS, TCP, TLS, HTTP timings
   - Create throughput measurement with 1MB downloads, Cache-Control headers, and fresh connections
   - Add stable client_id generation and local storage
@@ -196,10 +196,10 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Add performance tuning recommendations for production deployment
   - _Requirements: 9.2, 9.3, 9.4_
 
-- [ ] 23. Final Checkpoint - Ensure all tests pass
+- [x] 23. Final Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-### Milestone D: AI-Powered Analytics (Future Enhancement)
+### Milestone D: AI-Powered Analytics
 
 - [x] 24. Design AI agent architecture for network telemetry analysis
   - Define agent capabilities: pattern detection, anomaly identification, root cause analysis
@@ -253,7 +253,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
 
 ### Milestone E: User Interface & Visualization
 
-- [ ] 30. Design UI architecture and technology stack
+- [x] 30. Design UI architecture and technology stack
   - Select frontend framework (React, Vue, or Svelte)
   - Design REST API endpoints for UI data access
   - Plan responsive layout with mobile support
@@ -261,7 +261,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Create wireframes for key screens: dashboard, clients, targets, diagnostics
   - _Requirements: UI foundation_
 
-- [ ] 31. Implement backend API for UI
+- [x] 31. Implement backend API for UI
   - Create REST API endpoints for aggregate queries (time-series data)
   - Add client management APIs: list, filter, search clients
   - Implement target management APIs: list targets, view target metrics
@@ -270,7 +270,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Implement authentication endpoints (login, logout, session management)
   - _Requirements: API layer for UI_
 
-- [ ] 32. Build main dashboard view
+- [x] 32. Build main dashboard view
   - Create overview dashboard with key metrics summary
   - Implement time-series charts for P50/P95 latency trends
   - Add error rate visualization with breakdown by stage
@@ -280,7 +280,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Implement time range selector (1h, 6h, 24h, 7d, 30d, custom)
   - _Requirements: Dashboard visualization_
 
-- [ ] 33. Create client and target management views
+- [x] 33. Create client and target management views
   - Build clients list with search, sort, and filter capabilities
   - Implement client detail view with performance history
   - Create target list with health status indicators
@@ -289,7 +289,7 @@ This implementation plan converts the Network QoE Telemetry Platform design into
   - Add export functionality for reports (CSV, JSON)
   - _Requirements: Client/target management UI_
 
-- [ ] 34. Implement diagnostics and analysis views
+- [x] 34. Implement diagnostics and analysis views
   - Create diagnostic dashboard with problem categorization
   - Build detailed diagnostic view with root cause analysis
   - Implement baseline comparison visualization
