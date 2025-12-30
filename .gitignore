@@ -48,6 +48,10 @@ grafana_data/
 .env.local
 .env.*.local
 
+# Documentation and specs
+docs/
+.kiro/
+
 # Temporary files
 tmp/
 temp/
