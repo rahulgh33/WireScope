@@ -288,7 +288,3 @@ For higher load, run multiple ingest API instances behind a load balancer.
 ## License
 
 GNU GPL v3
-
-## Contributing
-
-Open an issue or PR. See `.kiro/specs/network-qoe-telemetry-platform/tasks.md` for planned work.
