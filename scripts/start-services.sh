@@ -105,18 +105,19 @@ sleep 2
 
 # Start Aggregator
 echo -e "${YELLOW}Starting Aggregator...${NC}"
-nohup ./bin/aggregator > logs/aggregator.log 2>&1 &
+nohup ./bin/aggregator \
+  --db-user=${DB_USER} \
+  --db-password=${DB_PASSWORD} \
+  --db-host=${DB_HOST} \
+  --db-name=${DB_NAME} \
+  --db-port=${DB_PORT} \
+  > logs/aggregator.log 2>&1 &
 AGGREGATOR_PID=$!
 echo $AGGREGATOR_PID > logs/aggregator.pid
 echo -e "${GREEN}✓ Aggregator started (PID: $AGGREGATOR_PID)${NC}"
 sleep 2
 
-# Start Diagnoser
-echo -e "${YELLOW}Starting Diagnoser...${NC}"
-nohup ./bin/diagnoser > logs/diagnoser.log 2>&1 &
-DIAGNOSER_PID=$!
-echo $DIAGNOSER_PID > logs/diagnoser.pid
-echo -e "${GREEN}✓ Diagnoser started (PID: $DIAGNOSER_PID)${NC}"
+# Note: Diagnoser is not implemented yet - diagnosis logic exists in aggregator
 
 # Start AI Agent if binary exists
 if [ -f "bin/ai-agent" ]; then

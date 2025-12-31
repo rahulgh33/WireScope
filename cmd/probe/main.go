@@ -24,6 +24,7 @@ var (
 	interval       = flag.Duration("interval", 60*time.Second, "Measurement interval")
 	ingestURL      = flag.String("ingest-url", "http://localhost:8080/events", "Ingest API URL")
 	apiToken       = flag.String("api-token", "", "API token for authentication")
+	clientID       = flag.String("client-id", "", "Client ID (auto-generated if not provided)")
 	once           = flag.Bool("once", false, "Run once and exit")
 	interfaceType  = flag.String("interface", "ethernet", "Network interface type (wifi, ethernet, cellular)")
 	vpnEnabled     = flag.Bool("vpn", false, "Whether VPN is enabled")
@@ -87,13 +88,19 @@ func main() {
 	}()
 
 	// Get or create stable client ID
-	clientID, err := probe.GetOrCreateClientID()
-	if err != nil {
-		log.Fatalf("Failed to get client ID: %v", err)
+	var resolvedClientID string
+	if *clientID != "" {
+		resolvedClientID = *clientID
+	} else {
+		generatedID, err := probe.GetOrCreateClientID()
+		if err != nil {
+			log.Fatalf("Failed to get client ID: %v", err)
+		}
+		resolvedClientID = generatedID
 	}
 
 	log.Printf("Network QoE Probe Agent")
-	log.Printf("Client ID: %s", clientID)
+	log.Printf("Client ID: %s", resolvedClientID)
 	log.Printf("Target: %s", *target)
 	log.Printf("Interval: %v", *interval)
 	log.Printf("Queue size: %d", *queueSize)
@@ -114,7 +121,7 @@ func main() {
 
 	// Run measurement loop
 	for {
-		event := performMeasurement(clientID, *target, throughputEndpoint)
+		event := performMeasurement(resolvedClientID, *target, throughputEndpoint)
 
 		// Enqueue event for sending
 		if *ingestURL != "" && *apiToken != "" {

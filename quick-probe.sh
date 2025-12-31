@@ -27,9 +27,10 @@ fi
 # Ensure it's executable
 chmod +x probe
 
-# Run probe (client ID is auto-generated)
+# Run probe
 ./probe \
   --ingest-url "http://${SERVER_IP}:8081/events" \
   --api-token "${API_TOKEN}" \
+  --client-id "${CLIENT_ID}" \
   --target https://google.com \
   --interval 60s
