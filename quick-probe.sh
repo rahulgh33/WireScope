@@ -21,9 +21,11 @@ if [ ! -f "./probe" ]; then
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         curl -sL https://github.com/rahulgh33/WireScope/releases/latest/download/probe-darwin-amd64 -o probe
     fi
-    chmod +x probe
     echo "✅ Downloaded"
 fi
+
+# Ensure it's executable
+chmod +x probe
 
 # Run probe
 ./probe \
