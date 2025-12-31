@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -32,40 +33,123 @@ func (s *Service) RegisterDashboardRoutes(router *mux.Router) {
 
 // Dashboard handlers
 func (s *Service) getDashboardOverview(w http.ResponseWriter, r *http.Request) {
-	overview := map[string]interface{}{
-		"total_events":      125837,
-		"active_clients":    47,
-		"avg_latency_ms":    123.5,
-		"error_rate":        0.023,
-		"timestamp":         time.Now().Format(time.RFC3339),
-		"events_per_second": 156.8,
-		"p95_latency_ms":    287.3,
-		"p99_latency_ms":    445.2,
-		"healthy_targets":   23,
-		"degraded_targets":  2,
-		"unhealthy_targets": 1,
+	ctx := r.Context()
+
+	// Get summary from last 5 minutes of aggregated data
+	var summary struct {
+		ActiveClients int     `json:"active_clients"`
+		AvgLatencyP95 float64 `json:"avg_latency_p95"`
+		SuccessRate   float64 `json:"success_rate"`
+		ErrorRate     float64 `json:"error_rate"`
+		TotalEvents   int     `json:"total_events"`
+		TotalTargets  int     `json:"total_targets"`
 	}
+
+	query := `
+		SELECT 
+			COUNT(DISTINCT client_id) as active_clients,
+			COALESCE(AVG(CASE WHEN ttfb_p95 > 0 THEN ttfb_p95 END), 0) as avg_latency_p95,
+			COALESCE(SUM(count_total), 0) as total_events,
+			COALESCE(SUM(count_error), 0) as total_errors,
+			COUNT(DISTINCT target) as total_targets
+		FROM agg_1m
+		WHERE window_start_ts >= NOW() - INTERVAL '24 hours'
+	`
+
+	var totalErrors int
+	err := s.repo.Connection().DB().QueryRowContext(ctx, query).Scan(
+		&summary.ActiveClients,
+		&summary.AvgLatencyP95,
+		&summary.TotalEvents,
+		&totalErrors,
+		&summary.TotalTargets,
+	)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Calculate rates (as decimals 0-1, not percentages)
+	if summary.TotalEvents > 0 {
+		summary.ErrorRate = float64(totalErrors) / float64(summary.TotalEvents)
+		summary.SuccessRate = 1.0 - summary.ErrorRate
+	} else {
+		summary.SuccessRate = 0
+		summary.ErrorRate = 0
+	}
+
+	overview := map[string]interface{}{
+		"summary":   summary,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
 	respondJSON(w, http.StatusOK, overview)
 }
 
 func (s *Service) getTimeSeries(w http.ResponseWriter, r *http.Request) {
-	// Generate sample time series data
-	now := time.Now()
-	dataPoints := make([]map[string]interface{}, 0, 24)
+	ctx := r.Context()
 
-	for i := 23; i >= 0; i-- {
-		timestamp := now.Add(time.Duration(-i) * time.Hour)
+	metric := r.URL.Query().Get("metric")
+	clientID := r.URL.Query().Get("client_id")
+	target := r.URL.Query().Get("target")
+
+	// Build base query
+	query := `
+		SELECT 
+			DATE_TRUNC('hour', window_start_ts) as timestamp,
+			COALESCE(AVG(CASE WHEN ttfb_p95 > 0 THEN ttfb_p95 END), 0) as p95,
+			COALESCE(AVG(CASE WHEN dns_p95 > 0 THEN dns_p95 END), 0) as dns_p95,
+			SUM(count_total) as count
+		FROM agg_1m
+		WHERE window_start_ts >= NOW() - INTERVAL '24 hours'
+	`
+
+	args := []interface{}{}
+	argIndex := 1
+
+	if clientID != "" && clientID != "undefined" {
+		query += fmt.Sprintf(" AND client_id = $%d", argIndex)
+		args = append(args, clientID)
+		argIndex++
+	}
+
+	if target != "" && target != "undefined" {
+		query += fmt.Sprintf(" AND target = $%d", argIndex)
+		args = append(args, target)
+		argIndex++
+	}
+
+	query += ` GROUP BY DATE_TRUNC('hour', window_start_ts) ORDER BY timestamp`
+
+	rows, err := s.repo.Connection().DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	dataPoints := []map[string]interface{}{}
+
+	for rows.Next() {
+		var timestamp time.Time
+		var p95, dnsP95 float64
+		var count int
+
+		if err := rows.Scan(&timestamp, &p95, &dnsP95, &count); err != nil {
+			continue
+		}
+
 		dataPoints = append(dataPoints, map[string]interface{}{
 			"timestamp": timestamp.Format(time.RFC3339),
-			"p50":       100 + float64(i*2),
-			"p95":       200 + float64(i*5),
-			"p99":       300 + float64(i*8),
-			"count":     1000 + i*50,
+			"p95":       p95,
+			"dns_p95":   dnsP95,
+			"count":     count,
 		})
 	}
 
 	response := map[string]interface{}{
-		"metric":      "latency_ms",
+		"metric":      metric,
 		"time_series": dataPoints,
 	}
 	respondJSON(w, http.StatusOK, response)
@@ -73,53 +157,66 @@ func (s *Service) getTimeSeries(w http.ResponseWriter, r *http.Request) {
 
 // Client handlers
 func (s *Service) getClients(w http.ResponseWriter, r *http.Request) {
-	clients := []map[string]interface{}{
-		{
-			"id":             "client-001",
-			"name":           "client-001",
-			"status":         "active",
-			"last_seen":      time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-			"avg_latency_ms": 134.2,
-			"total_requests": 5432,
-			"error_count":    12,
-			"active_targets": 3,
-		},
-		{
-			"id":             "client-002",
-			"name":           "client-002",
-			"status":         "active",
-			"last_seen":      time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
-			"avg_latency_ms": 98.7,
-			"total_requests": 8765,
-			"error_count":    5,
-			"active_targets": 5,
-		},
-		{
-			"id":             "client-003",
-			"name":           "client-003",
-			"status":         "warning",
-			"last_seen":      time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-			"avg_latency_ms": 245.8,
-			"total_requests": 3210,
-			"error_count":    45,
-			"active_targets": 2,
-		},
-		{
-			"id":             "client-004",
-			"name":           "client-004",
-			"status":         "inactive",
-			"last_seen":      time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-			"avg_latency_ms": 187.3,
-			"total_requests": 1890,
-			"error_count":    8,
-			"active_targets": 1,
-		},
+	ctx := r.Context()
+
+	query := `
+		SELECT 
+			client_id,
+			COUNT(DISTINCT target) as active_targets,
+			MAX(window_start_ts) as last_seen,
+			SUM(count_total) as total_requests,
+			SUM(count_error) as error_count,
+			COALESCE(AVG(CASE WHEN ttfb_p50 > 0 THEN ttfb_p50 END), 0) as avg_latency_ms
+		FROM agg_1m
+		WHERE window_start_ts >= NOW() - INTERVAL '24 hours'
+		GROUP BY client_id
+		ORDER BY last_seen DESC
+	`
+
+	rows, err := s.repo.Connection().DB().QueryContext(ctx, query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	clients := []map[string]interface{}{}
+	activeCount := 0
+
+	for rows.Next() {
+		var clientID string
+		var activeTargets, totalRequests, errorCount int
+		var lastSeen time.Time
+		var avgLatencyMs float64
+
+		if err := rows.Scan(&clientID, &activeTargets, &lastSeen, &totalRequests, &errorCount, &avgLatencyMs); err != nil {
+			continue
+		}
+
+		status := "inactive"
+		if time.Since(lastSeen) < 5*time.Minute {
+			status = "active"
+			activeCount++
+		} else if time.Since(lastSeen) < 30*time.Minute {
+			status = "warning"
+		}
+
+		clients = append(clients, map[string]interface{}{
+			"id":             clientID,
+			"name":           clientID,
+			"status":         status,
+			"last_seen":      lastSeen.Format(time.RFC3339),
+			"avg_latency_ms": avgLatencyMs,
+			"total_requests": totalRequests,
+			"error_count":    errorCount,
+			"active_targets": activeTargets,
+		})
 	}
 
 	response := map[string]interface{}{
 		"clients":      clients,
 		"total":        len(clients),
-		"active_count": 2,
+		"active_count": activeCount,
 	}
 	respondJSON(w, http.StatusOK, response)
 }
@@ -127,22 +224,65 @@ func (s *Service) getClients(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getClientDetail(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	clientID := vars["id"]
+	ctx := r.Context()
+
+	query := `
+		SELECT 
+			COUNT(DISTINCT target) as active_targets,
+			MIN(window_start_ts) as first_seen,
+			MAX(window_start_ts) as last_seen,
+			SUM(count_total) as total_requests,
+			SUM(count_error) as error_count,
+			COALESCE(AVG(CASE WHEN ttfb_p50 > 0 THEN ttfb_p50 END), 0) as avg_latency_ms,
+			COALESCE(AVG(CASE WHEN ttfb_p95 > 0 THEN ttfb_p95 END), 0) as p95_latency_ms,
+			COALESCE(AVG(CASE WHEN ttfb_p99 > 0 THEN ttfb_p99 END), 0) as p99_latency_ms
+		FROM agg_1m
+		WHERE client_id = $1
+	`
+
+	var activeTargets, totalRequests, errorCount int
+	var firstSeen, lastSeen time.Time
+	var avgLatency, p95Latency, p99Latency float64
+
+	err := s.repo.Connection().DB().QueryRowContext(ctx, query, clientID).Scan(
+		&activeTargets,
+		&firstSeen,
+		&lastSeen,
+		&totalRequests,
+		&errorCount,
+		&avgLatency,
+		&p95Latency,
+		&p99Latency,
+	)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Client not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	var errorRate float64
+	if totalRequests > 0 {
+		errorRate = float64(errorCount) / float64(totalRequests)
+	}
+
+	status := "inactive"
+	if time.Since(lastSeen) < 10*time.Minute {
+		status = "active"
+	}
 
 	client := map[string]interface{}{
 		"id":             clientID,
 		"name":           clientID,
-		"status":         "active",
-		"last_seen":      time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-		"first_seen":     time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
-		"avg_latency_ms": 134.2,
-		"p95_latency_ms": 287.3,
-		"p99_latency_ms": 445.2,
-		"total_requests": 5432,
-		"error_count":    12,
-		"error_rate":     0.022,
-		"active_targets": 3,
-		"version":        "1.0.0",
-		"location":       "US-West",
+		"status":         status,
+		"last_seen":      lastSeen.Format(time.RFC3339),
+		"first_seen":     firstSeen.Format(time.RFC3339),
+		"avg_latency_ms": avgLatency,
+		"p95_latency_ms": p95Latency,
+		"p99_latency_ms": p99Latency,
+		"total_requests": totalRequests,
+		"error_count":    errorCount,
+		"error_rate":     errorRate,
+		"active_targets": activeTargets,
 	}
 
 	respondJSON(w, http.StatusOK, client)
@@ -151,18 +291,44 @@ func (s *Service) getClientDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getClientPerformance(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	clientID := vars["id"]
+	ctx := r.Context()
 
-	// Generate sample performance data
-	now := time.Now()
-	dataPoints := make([]map[string]interface{}, 0, 24)
+	query := `
+		SELECT 
+			DATE_TRUNC('hour', window_start_ts) as timestamp,
+			COALESCE(AVG(CASE WHEN ttfb_p50 > 0 THEN ttfb_p50 END), 0) as latency_ms,
+			SUM(count_error)::float / NULLIF(SUM(count_total), 0) as error_rate,
+			SUM(count_total) as request_count
+		FROM agg_1m
+		WHERE client_id = $1 
+		  AND window_start_ts >= NOW() - INTERVAL '24 hours'
+		GROUP BY DATE_TRUNC('hour', window_start_ts)
+		ORDER BY timestamp
+	`
 
-	for i := 23; i >= 0; i-- {
-		timestamp := now.Add(time.Duration(-i) * time.Hour)
+	rows, err := s.repo.Connection().DB().QueryContext(ctx, query, clientID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	dataPoints := []map[string]interface{}{}
+
+	for rows.Next() {
+		var timestamp time.Time
+		var latencyMs, errorRate float64
+		var requestCount int
+
+		if err := rows.Scan(&timestamp, &latencyMs, &errorRate, &requestCount); err != nil {
+			continue
+		}
+
 		dataPoints = append(dataPoints, map[string]interface{}{
 			"timestamp":     timestamp.Format(time.RFC3339),
-			"latency_ms":    100 + float64(i*3),
-			"error_rate":    0.01 + float64(i)*0.001,
-			"request_count": 200 + i*10,
+			"latency_ms":    latencyMs,
+			"error_rate":    errorRate,
+			"request_count": requestCount,
 		})
 	}
 
@@ -175,34 +341,63 @@ func (s *Service) getClientPerformance(w http.ResponseWriter, r *http.Request) {
 
 // Target handlers
 func (s *Service) getTargets(w http.ResponseWriter, r *http.Request) {
-	targets := []map[string]interface{}{
-		{
-			"target":         "api.example.com",
-			"status":         "healthy",
-			"avg_latency_ms": 98.7,
-			"request_count":  15432,
-			"error_count":    23,
-			"active_clients": 12,
-			"last_checked":   time.Now().Add(-1 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			"target":         "cdn.example.com",
-			"status":         "healthy",
-			"avg_latency_ms": 45.2,
-			"request_count":  28765,
-			"error_count":    8,
-			"active_clients": 18,
-			"last_checked":   time.Now().Add(-30 * time.Second).Format(time.RFC3339),
-		},
-		{
-			"target":         "db.example.com",
-			"status":         "degraded",
-			"avg_latency_ms": 234.8,
-			"request_count":  9876,
-			"error_count":    156,
-			"active_clients": 8,
-			"last_checked":   time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
-		},
+	ctx := r.Context()
+
+	query := `
+		SELECT 
+			target,
+			COUNT(DISTINCT client_id) as active_clients,
+			MAX(window_start_ts) as last_checked,
+			SUM(count_total) as request_count,
+			SUM(count_error) as error_count,
+			COALESCE(AVG(CASE WHEN ttfb_p50 > 0 THEN ttfb_p50 END), 0) as avg_latency_ms
+		FROM agg_1m
+		WHERE window_start_ts >= NOW() - INTERVAL '24 hours'
+		GROUP BY target
+		ORDER BY last_checked DESC
+	`
+
+	rows, err := s.repo.Connection().DB().QueryContext(ctx, query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	targets := []map[string]interface{}{}
+
+	for rows.Next() {
+		var target string
+		var activeClients, requestCount, errorCount int
+		var lastChecked time.Time
+		var avgLatencyMs float64
+
+		if err := rows.Scan(&target, &activeClients, &lastChecked, &requestCount, &errorCount, &avgLatencyMs); err != nil {
+			continue
+		}
+
+		status := "healthy"
+		errorRate := float64(0)
+		if requestCount > 0 {
+			errorRate = float64(errorCount) / float64(requestCount)
+		}
+
+		if errorRate > 0.05 {
+			status = "degraded"
+		}
+		if errorRate > 0.2 || time.Since(lastChecked) > 10*time.Minute {
+			status = "unhealthy"
+		}
+
+		targets = append(targets, map[string]interface{}{
+			"target":         target,
+			"status":         status,
+			"avg_latency_ms": avgLatencyMs,
+			"request_count":  requestCount,
+			"error_count":    errorCount,
+			"active_clients": activeClients,
+			"last_checked":   lastChecked.Format(time.RFC3339),
+		})
 	}
 
 	response := map[string]interface{}{
@@ -215,24 +410,77 @@ func (s *Service) getTargets(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getTargetDetail(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	target := vars["target"]
+	ctx := r.Context()
+
+	query := `
+		SELECT 
+			COUNT(DISTINCT client_id) as active_clients,
+			MIN(window_start_ts) as first_seen,
+			MAX(window_start_ts) as last_checked,
+			SUM(count_total) as request_count,
+			SUM(count_error) as error_count,
+			COALESCE(AVG(CASE WHEN ttfb_p50 > 0 THEN ttfb_p50 END), 0) as avg_latency_ms,
+			COALESCE(AVG(CASE WHEN ttfb_p95 > 0 THEN ttfb_p95 END), 0) as p95_latency_ms,
+			COALESCE(AVG(CASE WHEN ttfb_p95 > 0 THEN ttfb_p95 END), 0) as p95_latency_ms,
+			COALESCE(AVG(CASE WHEN dns_p50 > 0 THEN dns_p50 END), 0) as dns_latency_ms,
+			COALESCE(AVG(CASE WHEN tcp_p50 > 0 THEN tcp_p50 END), 0) as tcp_latency_ms,
+			COALESCE(AVG(CASE WHEN tls_p50 > 0 THEN tls_p50 END), 0) as tls_latency_ms
+		FROM agg_1m
+		WHERE target = $1
+	`
+
+	var activeClients, requestCount, errorCount int
+	var firstSeen, lastChecked time.Time
+	var avgLatency, p95Latency, p99Latency, dnsLatency, tcpLatency, tlsLatency float64
+
+	err := s.repo.Connection().DB().QueryRowContext(ctx, query, target).Scan(
+		&activeClients,
+		&firstSeen,
+		&lastChecked,
+		&requestCount,
+		&errorCount,
+		&avgLatency,
+		&p95Latency,
+		&p99Latency,
+		&dnsLatency,
+		&tcpLatency,
+		&tlsLatency,
+	)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Target not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	var errorRate float64
+	if requestCount > 0 {
+		errorRate = float64(errorCount) / float64(requestCount)
+	}
+
+	status := "healthy"
+	if errorRate > 0.05 {
+		status = "degraded"
+	}
+	if errorRate > 0.2 || time.Since(lastChecked) > 10*time.Minute {
+		status = "unhealthy"
+	}
 
 	detail := map[string]interface{}{
-		"target":          target,
-		"status":          "healthy",
-		"avg_latency_ms":  98.7,
-		"p95_latency_ms":  187.3,
-		"p99_latency_ms":  298.5,
-		"request_count":   15432,
-		"error_count":     23,
-		"error_rate":      0.015,
-		"active_clients":  12,
-		"last_checked":    time.Now().Add(-1 * time.Minute).Format(time.RFC3339),
-		"first_seen":      time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
-		"dns_latency_ms":  12.3,
-		"tcp_latency_ms":  45.6,
-		"tls_latency_ms":  23.4,
-		"ttfb_ms":         67.8,
-		"throughput_mbps": 125.6,
+		"target":         target,
+		"status":         status,
+		"avg_latency_ms": avgLatency,
+		"p95_latency_ms": p95Latency,
+		"p99_latency_ms": p99Latency,
+		"request_count":  requestCount,
+		"error_count":    errorCount,
+		"error_rate":     errorRate,
+		"active_clients": activeClients,
+		"last_checked":   lastChecked.Format(time.RFC3339),
+		"first_seen":     firstSeen.Format(time.RFC3339),
+		"dns_latency_ms": dnsLatency,
+		"tcp_latency_ms": tcpLatency,
+		"tls_latency_ms": tlsLatency,
+		"ttfb_ms":        avgLatency - dnsLatency - tcpLatency - tlsLatency,
 	}
 
 	respondJSON(w, http.StatusOK, detail)
@@ -240,46 +488,91 @@ func (s *Service) getTargetDetail(w http.ResponseWriter, r *http.Request) {
 
 // Diagnostics handlers
 func (s *Service) getDiagnostics(w http.ResponseWriter, r *http.Request) {
-	diagnostics := []map[string]interface{}{
-		{
-			"id":          "diag-001",
-			"timestamp":   time.Now().Add(-6 * time.Minute).Format(time.RFC3339),
-			"client_id":   "client-001",
-			"target":      "api.example.com",
-			"label":       "DNS-bound",
-			"severity":    "warning",
-			"description": "High DNS latency (450ms)",
-			"metrics": map[string]interface{}{
-				"dns_latency_ms":   450,
-				"total_latency_ms": 520,
-			},
-		},
-		{
-			"id":          "diag-002",
-			"timestamp":   time.Now().Add(-16 * time.Minute).Format(time.RFC3339),
-			"client_id":   "client-002",
-			"target":      "cdn.example.com",
-			"label":       "Server-bound",
-			"severity":    "warning",
-			"description": "Slow TTFB (280ms)",
-			"metrics": map[string]interface{}{
-				"ttfb_ms":          280,
-				"total_latency_ms": 320,
-			},
-		},
-		{
-			"id":          "diag-003",
-			"timestamp":   time.Now().Add(-31 * time.Minute).Format(time.RFC3339),
-			"client_id":   "client-003",
-			"target":      "api.example.com",
-			"label":       "Throughput",
-			"severity":    "error",
-			"description": "Low throughput detected",
-			"metrics": map[string]interface{}{
-				"throughput_mbps": 2.3,
-				"expected_mbps":   10.0,
-			},
-		},
+	ctx := r.Context()
+
+	// Query for issues: high error rates, high latencies, etc.
+	query := `
+		SELECT 
+			client_id,
+			target,
+			window_start_ts,
+			count_total,
+			count_error,
+			COALESCE(ttfb_p95, 0) as ttfb_p95,
+			COALESCE(dns_p95, 0) as dns_p95
+		FROM agg_1m
+		WHERE window_start_ts >= NOW() - INTERVAL '24 hours'
+		  AND (count_error > 0 OR ttfb_p95 > 1000 OR dns_p95 > 500)
+		ORDER BY window_start_ts DESC
+		LIMIT 50
+	`
+
+	rows, err := s.repo.Connection().DB().QueryContext(ctx, query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	diagnostics := []map[string]interface{}{}
+	diagID := 1
+
+	for rows.Next() {
+		var clientID, target string
+		var timestamp time.Time
+		var countTotal, countError int
+		var ttfbP95, dnsP95 float64
+
+		if err := rows.Scan(&clientID, &target, &timestamp, &countTotal, &countError, &ttfbP95, &dnsP95); err != nil {
+			continue
+		}
+
+		errorRate := float64(0)
+		if countTotal > 0 {
+			errorRate = float64(countError) / float64(countTotal)
+		}
+
+		// Determine primary issue
+		var label, description, severity string
+		metrics := map[string]interface{}{}
+
+		if errorRate > 0.5 {
+			label = "High Error Rate"
+			description = fmt.Sprintf("Error rate: %.1f%%", errorRate*100)
+			severity = "error"
+			metrics["error_rate"] = errorRate
+			metrics["total_requests"] = countTotal
+		} else if errorRate > 0.1 {
+			label = "Elevated Errors"
+			description = fmt.Sprintf("Error rate: %.1f%%", errorRate*100)
+			severity = "warning"
+			metrics["error_rate"] = errorRate
+		} else if dnsP95 > 500 {
+			label = "DNS-bound"
+			description = fmt.Sprintf("High DNS latency (%.0fms)", dnsP95)
+			severity = "warning"
+			metrics["dns_latency_ms"] = dnsP95
+		} else if ttfbP95 > 1000 {
+			label = "Server-bound"
+			description = fmt.Sprintf("Slow TTFB (%.0fms)", ttfbP95)
+			severity = "warning"
+			metrics["ttfb_ms"] = ttfbP95
+		} else {
+			continue
+		}
+
+		diag := map[string]interface{}{
+			"id":          fmt.Sprintf("diag-%03d", diagID),
+			"timestamp":   timestamp.Format(time.RFC3339),
+			"client_id":   clientID,
+			"target":      target,
+			"label":       label,
+			"severity":    severity,
+			"description": description,
+			"metrics":     metrics,
+		}
+		diagnostics = append(diagnostics, diag)
+		diagID++
 	}
 
 	response := map[string]interface{}{
@@ -290,18 +583,68 @@ func (s *Service) getDiagnostics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) getDiagnosticsTrends(w http.ResponseWriter, r *http.Request) {
-	// Generate sample trend data
-	now := time.Now()
-	trends := make([]map[string]interface{}, 0)
+	ctx := r.Context()
 
-	labels := []string{"DNS-bound", "Server-bound", "Throughput", "Handshake-bound"}
-	for i := 6; i >= 0; i-- {
-		date := now.Add(time.Duration(-i) * 24 * time.Hour)
-		for _, label := range labels {
+	// Query for trends over the past 7 days
+	query := `
+		SELECT 
+			DATE(window_start_ts) as date,
+			COUNT(CASE WHEN count_error::float / NULLIF(count_total, 0) > 0.5 THEN 1 END) as high_error_count,
+			COUNT(CASE WHEN count_error::float / NULLIF(count_total, 0) BETWEEN 0.1 AND 0.5 THEN 1 END) as elevated_error_count,
+			COUNT(CASE WHEN dns_p95 > 500 THEN 1 END) as dns_issue_count,
+			COUNT(CASE WHEN ttfb_p95 > 1000 THEN 1 END) as server_issue_count
+		FROM agg_1m
+		WHERE window_start_ts >= NOW() - INTERVAL '7 days'
+		GROUP BY DATE(window_start_ts)
+		ORDER BY date DESC
+	`
+
+	rows, err := s.repo.Connection().DB().QueryContext(ctx, query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Database query failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	trends := []map[string]interface{}{}
+
+	for rows.Next() {
+		var date time.Time
+		var highErrorCount, elevatedErrorCount, dnsIssueCount, serverIssueCount int
+
+		if err := rows.Scan(&date, &highErrorCount, &elevatedErrorCount, &dnsIssueCount, &serverIssueCount); err != nil {
+			continue
+		}
+
+		dateStr := date.Format("2006-01-02")
+
+		// Add individual trend points for each category
+		if highErrorCount > 0 {
 			trends = append(trends, map[string]interface{}{
-				"date":  date.Format("2006-01-02"),
-				"label": label,
-				"count": 10 + i*2,
+				"date":  dateStr,
+				"label": "High Error Rate",
+				"count": highErrorCount,
+			})
+		}
+		if elevatedErrorCount > 0 {
+			trends = append(trends, map[string]interface{}{
+				"date":  dateStr,
+				"label": "Elevated Errors",
+				"count": elevatedErrorCount,
+			})
+		}
+		if dnsIssueCount > 0 {
+			trends = append(trends, map[string]interface{}{
+				"date":  dateStr,
+				"label": "DNS-bound",
+				"count": dnsIssueCount,
+			})
+		}
+		if serverIssueCount > 0 {
+			trends = append(trends, map[string]interface{}{
+				"date":  dateStr,
+				"label": "Server-bound",
+				"count": serverIssueCount,
 			})
 		}
 	}

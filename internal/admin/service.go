@@ -9,12 +9,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/network-qoe-telemetry-platform/internal/auth"
+	"github.com/network-qoe-telemetry-platform/internal/database"
 )
 
 // Service provides admin operations
 type Service struct {
-	// In a real implementation, this would connect to the database
-	// For now, we'll use in-memory storage for demonstration
+	repo      *database.Repository
 	probes    map[string]*ProbeConfig
 	tokens    map[string]*APIToken
 	users     map[string]*User
@@ -24,7 +24,7 @@ type Service struct {
 }
 
 // NewService creates a new admin service
-func NewService(config *Config) *Service {
+func NewService(config *Config, repo *database.Repository) *Service {
 	userStore := auth.NewInMemoryUserStore()
 	// Initialize default users from environment or defaults
 	if err := auth.InitializeDefaultUsers(userStore); err != nil {
@@ -33,6 +33,7 @@ func NewService(config *Config) *Service {
 	}
 
 	return &Service{
+		repo:      repo,
 		probes:    make(map[string]*ProbeConfig),
 		tokens:    make(map[string]*APIToken),
 		users:     make(map[string]*User),

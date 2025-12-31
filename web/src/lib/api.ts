@@ -24,7 +24,9 @@ import type {
   APIError,
 } from '@/types/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+// Default to localhost:8090 in development, or relative path in production
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (import.meta.env.DEV ? 'http://localhost:8090/api/v1' : '/api/v1');
 
 class APIClient {
   private csrfToken: string | null = null;

@@ -52,7 +52,7 @@ func main() {
 	// Start WebSocket hub
 	go wsHub.Run(ctx)
 
-	server := NewAIAgentServer(agent, sessionManager, wsHub, config)
+	server := NewAIAgentServer(agent, sessionManager, wsHub, repo, config)
 
 	log.Printf("Starting AI Agent API server on %s", config.ServerAddr)
 	if err := server.Start(); err != nil {
@@ -64,15 +64,17 @@ type AIAgentServer struct {
 	agent          *ai.Agent
 	sessionManager *ai.SessionManager
 	wsHub          *websocket.Hub
+	repo           *database.Repository
 	config         Config
 	httpServer     *http.Server
 }
 
-func NewAIAgentServer(agent *ai.Agent, sessionManager *ai.SessionManager, wsHub *websocket.Hub, config Config) *AIAgentServer {
+func NewAIAgentServer(agent *ai.Agent, sessionManager *ai.SessionManager, wsHub *websocket.Hub, repo *database.Repository, config Config) *AIAgentServer {
 	return &AIAgentServer{
 		agent:          agent,
 		sessionManager: sessionManager,
 		wsHub:          wsHub,
+		repo:           repo,
 		config:         config,
 	}
 }
@@ -96,7 +98,7 @@ func (s *AIAgentServer) Start() error {
 			Enabled: false, // Will be configured via environment/config file
 		},
 	}
-	adminService := admin.NewService(adminConfig)
+	adminService := admin.NewService(adminConfig, s.repo)
 	adminService.RegisterRoutes(router)
 
 	// WebSocket endpoint for real-time metrics
@@ -108,9 +110,9 @@ func (s *AIAgentServer) Start() error {
 	router.Handle("/metrics", promhttp.Handler()).Methods("GET")
 
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:5174"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-CSRF-Token"},
 		AllowCredentials: true,
 	})
 
