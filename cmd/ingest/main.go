@@ -19,10 +19,10 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/network-qoe-telemetry-platform/internal/metrics"
-	"github.com/network-qoe-telemetry-platform/internal/models"
-	"github.com/network-qoe-telemetry-platform/internal/queue"
-	"github.com/network-qoe-telemetry-platform/internal/tracing"
+	"github.com/rahulgh33/wirescope/internal/metrics"
+	"github.com/rahulgh33/wirescope/internal/models"
+	"github.com/rahulgh33/wirescope/internal/queue"
+	"github.com/rahulgh33/wirescope/internal/tracing"
 )
 
 var (
@@ -391,7 +391,7 @@ func (api *IngestAPI) handleHealth(w http.ResponseWriter, r *http.Request) {
 func main() {
 	flag.Parse()
 
-	log.Printf("Starting Network QoE Ingest API")
+	log.Printf("Starting WireScope Ingest API")
 	log.Printf("Port: %s", *port)
 	log.Printf("NATS URL: %s", *natsURL)
 	log.Printf("Rate limit: %d req/s per client (burst: %d)", *rateLimit, *rateLimitBurst)

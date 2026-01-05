@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Stop all Go services for the Distributed Telemetry Platform
+# Stop all Go services for WireScope
 
 set -e
 
@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}=== Stopping Distributed Telemetry Platform Services ===${NC}\n"
+echo -e "${BLUE}=== Stopping WireScope Services ===${NC}\n"
 
 # Function to stop a service by PID file
 stop_service() {

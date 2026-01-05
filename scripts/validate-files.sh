@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Network QoE Platform File Structure Validation Script
+# WireScope File Structure Validation Script
 # This script validates the project structure without requiring Docker
 
 set -e
 
-echo "🔍 Validating Network QoE Platform File Structure..."
+echo "🔍 Validating WireScope File Structure..."
 
 # Check if required files exist
 echo "🔍 Checking required files..."
@@ -112,7 +112,7 @@ done
 
 # Check Go module
 if [[ -f "go.mod" ]]; then
-    if grep -q "module github.com/network-qoe-telemetry-platform" go.mod; then
+    if grep -q "module github.com/rahulgh33/wirescope" go.mod; then
         echo "✅ go.mod has correct module name"
     else
         echo "⚠️  go.mod module name may need adjustment"

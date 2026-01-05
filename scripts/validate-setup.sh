@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Network QoE Platform Setup Validation Script
+# WireScope Setup Validation Script
 
 set -e
 
-echo "🔍 Validating Network QoE Platform Setup..."
+echo "🔍 Validating WireScope Setup..."
 
 # Check if Docker is available
 if ! command -v docker &> /dev/null; then

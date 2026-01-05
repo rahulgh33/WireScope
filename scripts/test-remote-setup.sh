@@ -30,7 +30,7 @@ fi
 
 # Test 2: Postgres
 echo -e "${BLUE}[2/5] Checking PostgreSQL...${NC}"
-if docker exec distributed-telemetry-platform-postgres-1 pg_isready -U telemetry -d telemetry > /dev/null 2>&1; then
+if docker exec wirescope-postgres-1 pg_isready -U telemetry -d telemetry > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PostgreSQL is healthy${NC}"
 else
     echo -e "${RED}✗ PostgreSQL is not ready${NC}"

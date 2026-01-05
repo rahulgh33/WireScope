@@ -9,7 +9,7 @@ This guide will help you set up WireScope with:
 ### 1.1 Start the server services
 
 ```bash
-cd /Users/rahulghosh/Documents/distributed_telemetry/Distributed-Telemetry-Platform/Distributed-Telemetry-Platform
+cd /path/to/WireScope
 
 # Start all services
 docker-compose up -d
@@ -267,7 +267,7 @@ You should see data from your remote probe appearing in the dashboard!
 
 1. **Check database connection:**
    ```bash
-   docker exec -it distributed-telemetry-platform-postgres-1 psql -U telemetry -d telemetry -c "SELECT COUNT(*) FROM telemetry_events;"
+   docker exec -it wirescope-postgres-1 psql -U telemetry -d telemetry -c "SELECT COUNT(*) FROM telemetry_events;"
    ```
 
 2. **Check NATS connection:**

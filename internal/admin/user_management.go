@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/network-qoe-telemetry-platform/internal/auth"
+	"github.com/rahulgh33/wirescope/internal/auth"
 )
 
 // UpdatePasswordRequest represents a request to update user password

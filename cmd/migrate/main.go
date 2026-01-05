@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/network-qoe-telemetry-platform/config"
-	"github.com/network-qoe-telemetry-platform/internal/database"
+	"github.com/rahulgh33/wirescope/config"
+	"github.com/rahulgh33/wirescope/internal/database"
 )
 
 //go:embed migrations

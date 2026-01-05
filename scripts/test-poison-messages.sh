@@ -157,7 +157,7 @@ fi
 echo "Checking DLQ for poison message..."
 
 # Check if DLQ has messages
-DLQ_MSGS=$(docker exec distributed-telemetry-platform-nats-1 \
+DLQ_MSGS=$(docker exec wirescope-nats-1 \
   nats stream info telemetry-events-dlq --json | jq '.state.messages // 0')
 
 echo "DLQ messages: $DLQ_MSGS"

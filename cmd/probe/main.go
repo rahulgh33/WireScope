@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/network-qoe-telemetry-platform/internal/models"
-	"github.com/network-qoe-telemetry-platform/internal/probe"
-	"github.com/network-qoe-telemetry-platform/internal/tracing"
+	"github.com/rahulgh33/wirescope/internal/models"
+	"github.com/rahulgh33/wirescope/internal/probe"
+	"github.com/rahulgh33/wirescope/internal/tracing"
 )
 
 var (
@@ -99,7 +99,7 @@ func main() {
 		resolvedClientID = generatedID
 	}
 
-	log.Printf("Network QoE Probe Agent")
+	log.Printf("WireScope Probe Agent")
 	log.Printf("Client ID: %s", resolvedClientID)
 	log.Printf("Target: %s", *target)
 	log.Printf("Interval: %v", *interval)

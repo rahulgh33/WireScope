@@ -10,8 +10,6 @@ Pull requests welcome.
 
 ## What to contribute
 
-Check [tasks.md](.kiro/specs/network-qoe-telemetry-platform/tasks.md) for planned work.
-
 Useful areas:
 - Bug fixes
 - Performance improvements

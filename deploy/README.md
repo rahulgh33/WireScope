@@ -1,6 +1,6 @@
 # Multi-Machine Deployment Guide
 
-This guide describes how to deploy the Network QoE Telemetry Platform across multiple machines for production use.
+This guide describes how to deploy WireScope across multiple machines for production use.
 
 ## Architecture Overview
 

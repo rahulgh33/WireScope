@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple test target server for Network QoE testing
+Simple test target server for WireScope testing
 Provides endpoints for health checks, configurable delays, and throughput testing
 """
 
@@ -93,10 +93,10 @@ class TestHandler(http.server.BaseHTTPRequestHandler):
             html = '''<!DOCTYPE html>
 <html>
 <head>
-    <title>Network QoE Test Target</title>
+    <title>WireScope Test Target</title>
 </head>
 <body>
-    <h1>Network QoE Test Target Server</h1>
+    <h1>WireScope Test Target Server</h1>
     <p>This server provides test endpoints for network quality measurements.</p>
     <ul>
         <li><a href="/health">Health Check</a> - Fast response endpoint</li>

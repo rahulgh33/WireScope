@@ -17,11 +17,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/network-qoe-telemetry-platform/internal/database"
-	"github.com/network-qoe-telemetry-platform/internal/diagnosis"
-	"github.com/network-qoe-telemetry-platform/internal/models"
-	"github.com/network-qoe-telemetry-platform/internal/queue"
-	"github.com/network-qoe-telemetry-platform/internal/tracing"
+	"github.com/rahulgh33/wirescope/internal/database"
+	"github.com/rahulgh33/wirescope/internal/diagnosis"
+	"github.com/rahulgh33/wirescope/internal/models"
+	"github.com/rahulgh33/wirescope/internal/queue"
+	"github.com/rahulgh33/wirescope/internal/tracing"
 )
 
 var (
@@ -519,7 +519,7 @@ func convertToDBAggregate(agg *models.WindowedAggregate) *database.WindowedAggre
 func main() {
 	flag.Parse()
 
-	log.Printf("Starting Network QoE Aggregator")
+	log.Printf("Starting WireScope Aggregator")
 	log.Printf("NATS URL: %s", *natsURL)
 	log.Printf("Database: %s@%s:%d/%s", *dbUser, *dbHost, *dbPort, *dbName)
 	log.Printf("Consumer name: %s", *consumerName)

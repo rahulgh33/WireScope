@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	"github.com/network-qoe-telemetry-platform/internal/ai"
+	"github.com/rahulgh33/wirescope/internal/ai"
 )
 
 var (

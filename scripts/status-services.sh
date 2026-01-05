@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Check status of all services for the Distributed Telemetry Platform
+# Check status of all services for WireScope
 
 set -e
 
@@ -14,12 +14,12 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}=== Distributed Telemetry Platform Status ===${NC}\n"
+echo -e "${BLUE}=== WireScope Status ===${NC}\n"
 
 # Check Docker services
 echo -e "${BLUE}Docker Services:${NC}"
 echo "---"
-docker ps --filter "name=distributed-telemetry-platform" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo -e "${RED}✗ Docker not running or no containers${NC}"
+docker ps --filter "name=wirescope" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo -e "${RED}✗ Docker not running or no containers${NC}"
 
 # Check Go services
 echo -e "\n${BLUE}Go Services:${NC}"
@@ -91,7 +91,7 @@ echo -e "\n${BLUE}Resource Usage:${NC}"
 echo "---"
 if command -v docker &> /dev/null; then
     docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
-        --filter "name=distributed-telemetry-platform" 2>/dev/null | head -n 10
+        --filter "name=wirescope" 2>/dev/null | head -n 10
 fi
 
 # Recent logs summary

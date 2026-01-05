@@ -1,6 +1,6 @@
 # WireScope
 
-Network telemetry platform for measuring and analyzing network performance from distributed probes.
+A network telemetry platform for measuring and analyzing network performance from distributed probes.
 
 ## What it does
 
@@ -288,3 +288,7 @@ For higher load, run multiple ingest API instances behind a load balancer.
 ## License
 
 GNU GPL v3
+
+## Contributing
+
+Open an issue or PR.

@@ -36,7 +36,7 @@ export function Header() {
           <div className="h-8 w-8 rounded bg-primary flex items-center justify-center text-white font-bold">
             Q
           </div>
-          <h1 className="text-xl font-bold hidden sm:block">QoE Telemetry</h1>
+          <h1 className="text-xl font-bold hidden sm:block">WireScope</h1>
         </div>
 
         {/* Time Range Selector */}

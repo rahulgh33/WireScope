@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/network-qoe-telemetry-platform/internal/auth"
-	"github.com/network-qoe-telemetry-platform/internal/database"
+	"github.com/rahulgh33/wirescope/internal/auth"
+	"github.com/rahulgh33/wirescope/internal/database"
 )
 
 // Service provides admin operations

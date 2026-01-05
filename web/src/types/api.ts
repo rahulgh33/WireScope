@@ -1,4 +1,4 @@
-// API Type Definitions for Network QoE Telemetry Platform
+// API Type Definitions for WireScope
 
 export interface TimeRange {
   start: string; // ISO8601

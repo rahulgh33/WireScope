@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/network-qoe-telemetry-platform/internal/admin"
-	"github.com/network-qoe-telemetry-platform/internal/ai"
-	"github.com/network-qoe-telemetry-platform/internal/database"
-	"github.com/network-qoe-telemetry-platform/internal/websocket"
+	"github.com/rahulgh33/wirescope/internal/admin"
+	"github.com/rahulgh33/wirescope/internal/ai"
+	"github.com/rahulgh33/wirescope/internal/database"
+	"github.com/rahulgh33/wirescope/internal/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 )

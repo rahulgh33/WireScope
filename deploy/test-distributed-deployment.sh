@@ -88,7 +88,7 @@ test_storage_tier() {
     wait_for_service "PostgreSQL Primary" "docker exec deploy-postgres-primary-1 pg_isready -U telemetry -d telemetry" 20
     
     log "Testing database connection..."
-    if docker exec distributed-telemetry-platform-postgres-primary-1 \
+    if docker exec wirescope-postgres-primary-1 \
         psql -U telemetry -d telemetry -c "SELECT 1;" >/dev/null 2>&1; then
         log "Database connection successful"
     else
@@ -104,7 +104,7 @@ test_storage_tier() {
     wait_for_service "NATS Node 3" "curl -s -f http://localhost:8224/healthz" 15
     
     log "Testing NATS cluster connectivity..."
-    if docker exec distributed-telemetry-platform-nats-1-1 \
+    if docker exec wirescope-nats-1-1 \
         nats server check --server=nats://localhost:4222 >/dev/null 2>&1; then
         log "NATS cluster is healthy"
     else
@@ -183,7 +183,7 @@ test_end_to_end_flow() {
     sleep 30
     
     # Check if events were processed
-    if docker exec distributed-telemetry-platform-postgres-primary-1 \
+    if docker exec wirescope-postgres-primary-1 \
         psql -U telemetry -d telemetry -c "SELECT COUNT(*) FROM events_seen;" | grep -q "[1-9]"; then
         log "Events were successfully processed and stored"
         return 0

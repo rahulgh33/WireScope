@@ -1,4 +1,4 @@
-// API Client for Network QoE Telemetry Platform
+// API Client for WireScope
 
 import type {
   DashboardOverview,

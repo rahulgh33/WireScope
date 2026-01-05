@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/network-qoe-telemetry-platform/internal/database"
+	"github.com/rahulgh33/wirescope/internal/database"
 )
 
 // DataAccessLayer provides optimized data access for AI agent queries

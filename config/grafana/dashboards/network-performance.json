@@ -2,7 +2,7 @@
   "id": null,
   "uid": "network-performance",
   "title": "Network Performance Dashboard",
-  "description": "Network QoE telemetry dashboard showing latency trends, error rates, and diagnosis insights from aggregated data",
+  "description": "WireScope telemetry dashboard showing latency trends, error rates, and diagnosis insights from aggregated data",
   "timezone": "browser",
   "schemaVersion": 36,
   "version": 1,

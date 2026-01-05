@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Network QoE Diagnoser")
+	fmt.Println("WireScope Diagnoser")
 	// TODO: Implement diagnoser functionality
 	os.Exit(0)
 }

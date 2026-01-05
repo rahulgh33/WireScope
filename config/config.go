@@ -79,7 +79,7 @@ func Load() *Config {
 		},
 		Tracing: TracingConfig{
 			Enabled:     getEnvBool("TRACING_ENABLED", true),
-			ServiceName: getEnv("SERVICE_NAME", "network-qoe-platform"),
+			ServiceName: getEnv("SERVICE_NAME", "wirescope"),
 			Endpoint:    getEnv("JAEGER_ENDPOINT", "http://localhost:4318/v1/traces"),
 		},
 	}

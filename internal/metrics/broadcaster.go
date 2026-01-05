@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/network-qoe-telemetry-platform/internal/models"
+	"github.com/rahulgh33/wirescope/internal/models"
 )
 
 // Broadcaster interface for broadcasting real-time metrics

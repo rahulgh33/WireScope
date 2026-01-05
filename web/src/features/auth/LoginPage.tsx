@@ -50,7 +50,7 @@ export function LoginPage() {
               Q
             </div>
           </div>
-          <CardTitle className="text-2xl text-center">QoE Telemetry Platform</CardTitle>
+          <CardTitle className="text-2xl text-center">WireScope</CardTitle>
           <CardDescription className="text-center">
             Sign in to access the dashboard
           </CardDescription>

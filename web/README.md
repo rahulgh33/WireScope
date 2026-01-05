@@ -1,6 +1,6 @@
-# QoE Telemetry Platform - Web UI
+# WireScope - Web UI
 
-Modern React-based web interface for the Network QoE Telemetry Platform.
+Modern React-based web interface for WireScope.
 
 ## Tech Stack
 

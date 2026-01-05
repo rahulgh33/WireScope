@@ -1,4 +1,4 @@
-module github.com/network-qoe-telemetry-platform
+module github.com/rahulgh33/wirescope
 
 go 1.24.0
 

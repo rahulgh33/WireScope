@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/network-qoe-telemetry-platform/internal/database"
-	"github.com/network-qoe-telemetry-platform/internal/models"
+	"github.com/rahulgh33/wirescope/internal/database"
+	"github.com/rahulgh33/wirescope/internal/models"
 )
 
 // Property 3: Exactly-once aggregate effects via deduplication

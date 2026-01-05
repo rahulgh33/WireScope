@@ -1,4 +1,4 @@
--- Initial schema for Network QoE Telemetry Platform
+-- Initial schema for WireScope
 -- This file is automatically executed by PostgreSQL on first startup
 
 -- Events deduplication table

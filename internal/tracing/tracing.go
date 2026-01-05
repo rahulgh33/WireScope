@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/network-qoe-telemetry-platform/internal/models"
+	"github.com/rahulgh33/wirescope/internal/models"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"

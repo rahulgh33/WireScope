@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
-	"github.com/network-qoe-telemetry-platform/internal/models"
+	"github.com/rahulgh33/wirescope/internal/models"
 )
 
 // TestDefaultNATSConfig tests the default configuration

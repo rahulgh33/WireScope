@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/network-qoe-telemetry-platform/internal/tracing"
+	"github.com/rahulgh33/wirescope/internal/tracing"
 	"go.opentelemetry.io/otel/attribute"
 )
 

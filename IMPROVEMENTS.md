@@ -2,7 +2,7 @@
 
 ## Summary
 
-Successfully implemented critical security enhancements and scalability improvements to the WireScope distributed telemetry platform.
+Successfully implemented critical security enhancements and scalability improvements to WireScope.
 
 ## Changes Implemented
 

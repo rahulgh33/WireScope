@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Network QoE Platform Endpoint Testing Script
+# WireScope Endpoint Testing Script
 
 set -e
 
-echo "🧪 Testing Network QoE Platform Endpoints..."
+echo "🧪 Testing WireScope Endpoints..."
 
 # Test Test Target Server
 echo "🔍 Testing Test Target Server..."
@@ -85,4 +85,4 @@ echo "✅ Grafana: http://localhost:3000 (admin/admin)"
 echo "✅ Jaeger: http://localhost:16686"
 echo "✅ Database: PostgreSQL with 3 tables created"
 echo ""
-echo "The Network QoE Telemetry Platform development environment is ready!"
+echo "WireScope development environment is ready!"

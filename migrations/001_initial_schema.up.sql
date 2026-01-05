@@ -1,4 +1,4 @@
--- Initial schema for Network QoE Telemetry Platform
+-- Initial schema for WireScope
 
 -- Events deduplication table
 CREATE TABLE IF NOT EXISTS events_seen (

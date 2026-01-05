@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Start all Go services for the Distributed Telemetry Platform
+# Start all Go services for WireScope
 # Usage: ./scripts/start-services.sh [options]
 # Options:
 #   --build    Build binaries before starting
@@ -33,11 +33,11 @@ for arg in "$@"; do
     esac
 done
 
-echo -e "${BLUE}=== Distributed Telemetry Platform Startup ===${NC}\n"
+echo -e "${BLUE}=== WireScope Startup ===${NC}\n"
 
 # Check if Docker services are running
 echo -e "${YELLOW}Checking Docker services...${NC}"
-if ! docker ps | grep -q "distributed-telemetry-platform-postgres-1"; then
+if ! docker ps | grep -q "wirescope-postgres-1"; then
     echo -e "${RED}✗ Docker services are not running${NC}"
     echo -e "${YELLOW}Starting Docker services...${NC}"
     make up

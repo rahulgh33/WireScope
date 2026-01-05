@@ -2,7 +2,7 @@
   "id": null,
   "uid": "platform-health",
   "title": "Platform Health Dashboard",
-  "description": "Service metrics and SLA monitoring for the distributed telemetry platform",
+  "description": "Service metrics and SLA monitoring for WireScope",
   "timezone": "browser",
   "schemaVersion": 36,
   "version": 1,

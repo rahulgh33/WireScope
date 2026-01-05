@@ -2,7 +2,7 @@
 
 # Default target
 help:
-	@echo "Network QoE Telemetry Platform"
+	@echo "WireScope"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  validate      - Validate the setup configuration"
