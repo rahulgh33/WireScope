@@ -48,6 +48,17 @@ else
     echo -e "${GREEN}✓ Docker services are running${NC}"
 fi
 
+# Check for conflicting local Postgres instance
+echo -e "\n${YELLOW}Checking for port conflicts...${NC}"
+LOCAL_PG=$(lsof -i :5432 2>/dev/null | grep -v "com.docke" | grep postgres | wc -l | tr -d ' ')
+if [ "$LOCAL_PG" != "0" ]; then
+    echo -e "${RED}✗ Local Postgres is running on port 5432 and will conflict with Docker${NC}"
+    echo -e "${YELLOW}  Stop it with: brew services stop postgresql@16 (or postgresql@15)${NC}"
+    echo -e "${YELLOW}  Or check: lsof -i :5432${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ No port conflicts detected${NC}"
+
 # Build binaries if requested
 if [ "$BUILD" = true ]; then
     echo -e "\n${YELLOW}Building Go binaries...${NC}"

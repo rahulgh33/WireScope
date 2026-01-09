@@ -1,66 +1,151 @@
 # WireScope
 
-A network telemetry platform for measuring and analyzing network performance from distributed probes.
+A distributed network telemetry platform for measuring and analyzing network performance from multiple locations.
 
 ## What it does
 
-Deploys lightweight probes anywhere (home, office, cloud servers) that measure network performance and send data to a central server. The server aggregates the data, identifies problems, and shows everything in a web dashboard.
+Deploy lightweight probes anywhere (home, office, cloud, remote sites) that continuously measure network performance and send data to a central server. The server aggregates metrics, identifies bottlenecks, and presents everything in real-time dashboards.
 
-Useful for:
-- Monitoring ISP quality from different locations
-- Tracking corporate network performance across offices
-- Debugging network issues with actual data
-- Understanding where latency comes from (DNS? Handshake? Server?)
+**Use cases:**
+- Monitor ISP quality from different geographic locations
+- Track corporate network performance across branch offices
+- Debug connectivity issues with hard data (not just "it's slow")
+- Understand latency breakdown (DNS, TCP, TLS, HTTP response time)
+- Compare network performance between providers or regions
 
 ## Architecture
 
 ```
-Probe → Ingest API → NATS → Aggregator → PostgreSQL → Web UI
+Probe → Ingest API (8081) → NATS Queue → Aggregator → PostgreSQL
                                               ↓
-                                         Diagnoser
-                                              ↓
-                                          AI Agent
+                                    Web UI / Grafana Dashboards
 ```
 
-**Probe**: Measures DNS, TCP/TLS handshake, HTTP latency, and throughput  
-**Ingest API**: Receives probe data via HTTP  
-**NATS**: Message queue (handles retries, ordering)  
-**Aggregator**: Calculates per-minute P50/P95 percentiles, deduplicates events  
-**Diagnoser**: Identifies bottlenecks (DNS issues, slow servers, etc.)  
-**AI Agent**: Answer questions about the data in natural language  
-**Web UI**: Dashboard with charts, real-time updates
+**Probe**: Measures DNS resolution, TCP/TLS handshake timing, HTTP latency, and throughput  
+**Ingest API**: HTTP endpoint that receives probe measurements with authentication  
+**NATS**: Durable message queue ensuring no data loss  
+**Aggregator**: Calculates 1-minute window statistics (P50/P95 percentiles), deduplicates events  
+**PostgreSQL**: Stores aggregated time-series data  
+**Web UI**: Real-time dashboard with charts and AI-powered queries  
+**Grafana**: Advanced visualization and alerting
 
 ## Quick Start
 
-### Server (your computer)
+See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
+
+### Prerequisites
+
+- **macOS/Linux** (tested on macOS with M1/M2)
+- **Docker Desktop** installed and running
+- **Go 1.21+** for building from source
+- **No local PostgreSQL** on port 5432 (conflicts with Docker)
+
+### 1. Initial Setup (5 minutes)
 
 ```bash
+# Clone repository
 git clone https://github.com/rahulgh33/WireScope.git
 cd WireScope
+
+# Stop any local postgres that might conflict
+brew services stop postgresql@16 postgresql@15 postgresql 2>/dev/null || true
+
+# Start Docker services (postgres, nats)
 docker-compose up -d
+
+# Build Go binaries
+make build
+
+# Run database migrations
+make migrate
+
+# Start all services
+./scripts/start-services.sh
 ```
 
-Open http://localhost:3000
-
-### Probe (any other machine)
+### 2. Verify Services Running
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/rahulgh33/WireScope/main/scripts/install-probe.sh | bash -s -- YOUR_SERVER_IP
+./scripts/status-services.sh
 ```
 
-Or manually:
-```bash
-# Download for your OS from releases
-wget https://github.com/rahulgh33/WireScope/releases/latest/download/probe-linux-amd64
-chmod +x probe-linux-amd64
+You should see:
+- ✓ PostgreSQL, NATS running
+- ✓ Ingest API, Aggregator, AI Agent running
 
-# Run it
-./probe-linux-amd64 \
-  --ingest-url http://YOUR_SERVER_IP:8081/events \
-  --api-token demo-token \
+### 3. Start Local Test Probes
+
+```bash
+# Probe 1 - monitoring example.com
+./bin/probe \
+  --ingest-url http://localhost:8081/events \
+  --client-id local-test-1 \
+  --target http://example.com \
+  --interval 30s \
+  --tracing-enabled=false &
+
+# Probe 2 - monitoring another target
+./bin/probe \
+  --ingest-url http://localhost:8081/events \
+  --client-id local-test-2 \
+  --target http://info.cern.ch \
+  --interval 30s \
+  --tracing-enabled=false &
+```
+
+### 4. View Data
+
+**Database (raw check):**
+```bash
+docker exec wirescope-postgres-1 psql -U telemetry -d telemetry \
+  -c "SELECT client_id, target, count_total FROM agg_1m ORDER BY window_start_ts DESC LIMIT 10;"
+```
+
+**Web UI:** http://localhost:5173 (start with `cd web && npm run dev`)  
+**Grafana:** http://localhost:3000 (admin/admin)  
+**Prometheus:** http://localhost:9090
+
+Data appears within ~60 seconds (aggregation window).
+
+## Remote Probe Deployment
+
+### Same Network (Local IP)
+
+On your Mac, find your IP:
+```bash
+ifconfig | grep "inet " | grep -v 127.0.0.1
+```
+
+On remote machine:
+```bash
+wget https://github.com/rahulgh33/WireScope/releases/latest/download/probe-linux-amd64 -O probe
+chmod +x probe
+
+./probe \
+  --ingest-url http://YOUR_MAC_IP:8081/events \
+  --client-id remote-office-1 \
   --target https://google.com \
-  --client-id my-probe
+  --interval 60s \
+  --tracing-enabled=false
 ```
+
+### Different Network (Internet)
+
+Use ngrok or cloud deployment:
+```bash
+# On your Mac
+ngrok http 8081
+
+# On remote machine, use the ngrok URL
+./probe \
+  --ingest-url https://YOUR-NGROK-URL.ngrok-free.dev/events \
+  --client-id remote-site-1 \
+  --target https://google.com \
+  --interval 60s \
+  --tracing-enabled=false
+```
+
+**Note:** For production, deploy the server to cloud (see [CLOUD_DEPLOYMENT.md](CLOUD_DEPLOYMENT.md)).
 
 ## Building from source
 
@@ -78,33 +163,78 @@ go build -o bin/ai-agent ./cmd/ai-agent
 
 ## Configuration
 
-Set via environment variables or command flags.
+### Probe Options
+- `--ingest-url`: Ingest API endpoint (required)
+- `--api-token`: Authentication token (optional if server auth is disabled)
+- `--target`: URL to monitor (required, e.g., http://example.com)
+- `--client-id`: Unique identifier for this probe (auto-generated if omitted)
+- `--interval`: Time between measurements (default: 60s)
+- `--tracing-enabled`: Enable OpenTelemetry tracing (default: true)
+- `--interface`: Network type: wifi, ethernet, cellular (default: ethernet)
+- `--vpn`: Set true if using VPN (default: false)
 
-### Probe
-- `--ingest-url`: Where to send data (required)
-- `--api-token`: Authentication token (required)
-- `--target`: URL to monitor (required)
-- `--client-id`: Unique identifier for this probe
-- `--interval`: Seconds between measurements (default: 60)
+### Ingest API Environment Variables
+- `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_NAME`, `DB_PORT`: Database connection
+- `NATS_URL`: NATS server URL (default: nats://localhost:4222)
+- `API_TOKENS`: Comma-separated valid tokens (leave empty to disable auth)
 
-### Ingest API
-- `NATS_URL`: NATS connection string
-- `API_TOKENS`: Comma-separated valid tokens
-- `PORT`: HTTP port (default: 8081)
+### Aggregator Environment Variables
+- `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_NAME`, `DB_PORT`: Database connection
+- `NATS_URL`: NATS server URL
 
-### Aggregator
-- `NATS_URL`: NATS connection string
-- `DATABASE_URL`: PostgreSQL connection string
-- `AGGREGATION_WINDOW`: Window size in seconds (default: 60)
+### Command Line Flags
+All services support `--help` to see available options:
+```bash
+./bin/probe --help
+./bin/ingest --help
+./bin/aggregator --help
+```
 
-### Diagnoser
-- `DATABASE_URL`: PostgreSQL connection string
-- `CHECK_INTERVAL`: How often to run diagnosis (default: 60s)
+## Common Issues & Solutions
 
-### AI Agent
-- `DATABASE_URL`: PostgreSQL connection string  
-- `OPENAI_API_KEY`: Your OpenAI key (optional, for AI features)
-- `PORT`: HTTP port (default: 9000)
+### "role telemetry does not exist"
+
+**Cause:** Local Postgres running on port 5432 conflicts with Docker container  
+**Fix:** 
+```bash
+brew services stop postgresql@16
+brew services stop postgresql@15
+# Then restart: docker-compose down -v && docker-compose up -d
+make migrate
+```
+
+### No data appearing in database
+
+**Cause:** Probe not sending events (missing --api-token or wrong URL)  
+**Check:**
+```bash
+# Probe logs should show "Successfully sent event..."
+tail -f logs/probe-*.log
+
+# Ingest should receive requests
+curl http://localhost:8081/metrics | grep ingest_requests_total
+
+# Check aggregator is running
+ps aux | grep aggregator
+tail -f logs/aggregator.log
+```
+
+### Port already in use
+
+**Cause:** Service already running or port conflict  
+**Fix:**
+```bash
+# Stop everything
+./scripts/stop-services.sh
+docker-compose down
+
+# Check what's using the port
+lsof -i :8081  # or whichever port
+
+# Restart
+docker-compose up -d
+./scripts/start-services.sh
+```
 
 ## Running without Docker
 

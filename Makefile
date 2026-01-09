@@ -117,14 +117,17 @@ migrate: migrate-up
 
 migrate-up:
 	@echo "Applying database migrations..."
+	@export DB_USER=telemetry DB_PASSWORD=telemetry DB_HOST=localhost DB_NAME=telemetry DB_PORT=5432 DB_SSLMODE=disable && \
 	go run ./cmd/migrate -command=up
 
 migrate-down:
 	@echo "Rolling back last migration..."
+	@export DB_USER=telemetry DB_PASSWORD=telemetry DB_HOST=localhost DB_NAME=telemetry DB_PORT=5432 DB_SSLMODE=disable && \
 	go run ./cmd/migrate -command=down
 
 migrate-status:
 	@echo "Checking migration status..."
+	@export DB_USER=telemetry DB_PASSWORD=telemetry DB_HOST=localhost DB_NAME=telemetry DB_PORT=5432 DB_SSLMODE=disable && \
 	go run ./cmd/migrate -command=status
 
 migrate-create:

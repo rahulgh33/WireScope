@@ -115,7 +115,8 @@ func main() {
 	eventQueue := NewEventQueue(*queueSize)
 
 	// Start worker goroutine to send events with exponential backoff
-	if *ingestURL != "" && *apiToken != "" {
+	// api-token is optional when server authentication is disabled
+	if *ingestURL != "" {
 		go eventSender(eventQueue, *ingestURL, *apiToken, *maxBackoff)
 	}
 
@@ -123,9 +124,12 @@ func main() {
 	for {
 		event := performMeasurement(resolvedClientID, *target, throughputEndpoint)
 
-		// Enqueue event for sending
-		if *ingestURL != "" && *apiToken != "" {
-			eventQueue.Enqueue(event)
+		// Enqueue event for sending (api-token is optional when auth is disabled)
+		if *ingestURL != "" {
+			queued := eventQueue.Enqueue(event)
+			if queued {
+				log.Printf("Queued event %s for sending", event.EventID)
+			}
 		}
 
 		if *once {
@@ -290,7 +294,9 @@ func sendEventToIngest(event *models.TelemetryEvent, ingestURL, apiToken string)
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiToken)
+	if apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+apiToken)
+	}
 
 	// Send request
 	client := &http.Client{

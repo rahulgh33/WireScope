@@ -208,6 +208,12 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		ingestActiveConnections.Inc()
 		defer ingestActiveConnections.Dec()
 
+		// If no tokens are configured, skip authentication
+		if len(api.validTokens) == 0 {
+			next(w, r)
+			return
+		}
+
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -229,7 +235,7 @@ func (api *IngestAPI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		token := parts[1]
 
 		// Validate token
-		if len(api.validTokens) > 0 && !api.validTokens[token] {
+		if !api.validTokens[token] {
 			ingestRequestsTotal.WithLabelValues("auth_error").Inc()
 			ingestAuthFailures.WithLabelValues("invalid_token").Inc()
 			http.Error(w, "Invalid API token", http.StatusUnauthorized)
